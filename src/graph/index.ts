@@ -3,10 +3,15 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 构建 LangGraph 多 Agent 状态图和初始运行状态。
  * @FilePath: /agents-cli/src/graph/index.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @LastEditTime: 2026-05-27 20:05:00
  */
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
+import {
+  boundaryIntentAgent,
+  boundaryOutputAgent,
+  boundaryResolveAgent,
+} from "../agents/boundaryAgents.js";
 import {
   commandAgent,
   confirmNode,
@@ -39,6 +44,8 @@ const AgentStateAnnotation = Annotation.Root({
   finalMarkdown: Annotation<string | undefined>(),
   commandIntent: Annotation<AgentState["commandIntent"]>(),
   commandPlan: Annotation<AgentState["commandPlan"]>(),
+  boundaryIntent: Annotation<AgentState["boundaryIntent"]>(),
+  boundaryResolution: Annotation<AgentState["boundaryResolution"]>(),
   risk: Annotation<AgentState["risk"]>(),
   userApproved: Annotation<boolean | undefined>(),
   executionResult: Annotation<AgentState["executionResult"]>(),
@@ -83,6 +90,10 @@ function routeAfterRouter(state: GraphState): string {
     return "research_write";
   }
 
+  if (state.route?.route === "boundary_svg") {
+    return "boundary_svg";
+  }
+
   if (state.route?.route === "local_command") {
     return "local_command";
   }
@@ -119,9 +130,9 @@ function routeAfterConfirm(state: GraphState): string {
 /**
  * 构建多 Agent 状态图。
  *
- * 图中只有一个入口 routerAgent，用户输入的自然语言任务会先被路由，再进入资料型
- * 或命令型子流程。后续新增 Agent 时，应优先扩展路由枚举和条件分支，而不是新增
- * CLI 入口。
+ * 图中只有一个入口 routerAgent，用户输入的自然语言任务会先被路由，再进入资料型、
+ * 边界 SVG 子流程或命令型子流程。后续新增 Agent 时，应优先扩展路由枚举和
+ * 条件分支，而不是新增 CLI 入口。
  */
 export function buildAgentGraph(runtime: AgentRuntime) {
   return new StateGraph(AgentStateAnnotation)
@@ -130,6 +141,9 @@ export function buildAgentGraph(runtime: AgentRuntime) {
     .addNode("summaryAgent", bindNode(summaryAgent, runtime))
     .addNode("writingAgent", bindNode(writingAgent, runtime))
     .addNode("formatAgent", bindNode(formatAgent, runtime))
+    .addNode("boundaryIntentAgent", bindNode(boundaryIntentAgent, runtime))
+    .addNode("boundaryResolveAgent", bindNode(boundaryResolveAgent, runtime))
+    .addNode("boundaryOutputAgent", bindNode(boundaryOutputAgent, runtime))
     .addNode("intentAgent", bindNode(intentAgent, runtime))
     .addNode("commandAgent", bindNode(commandAgent, runtime))
     .addNode("riskAgent", bindNode(riskAgent, runtime))
@@ -140,6 +154,7 @@ export function buildAgentGraph(runtime: AgentRuntime) {
     .addEdge(START, "routerAgent")
     .addConditionalEdges("routerAgent", routeAfterRouter, {
       research_write: "searchAgent",
+      boundary_svg: "boundaryIntentAgent",
       local_command: "intentAgent",
       unknown: "unknownAgent",
     })
@@ -156,6 +171,15 @@ export function buildAgentGraph(runtime: AgentRuntime) {
       [END]: END,
     })
     .addEdge("formatAgent", END)
+    .addConditionalEdges("boundaryIntentAgent", continueOrEnd("boundaryResolveAgent"), {
+      boundaryResolveAgent: "boundaryResolveAgent",
+      [END]: END,
+    })
+    .addConditionalEdges("boundaryResolveAgent", continueOrEnd("boundaryOutputAgent"), {
+      boundaryOutputAgent: "boundaryOutputAgent",
+      [END]: END,
+    })
+    .addEdge("boundaryOutputAgent", END)
     .addConditionalEdges("intentAgent", continueOrEnd("commandAgent"), {
       commandAgent: "commandAgent",
       [END]: END,

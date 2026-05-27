@@ -3,8 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "bin": {
+    "agents": "./agents"
+  },
   "scripts": {
-    "start": "tsx src/cli.ts",
+    "start": "node --import tsx src/cli.ts",
     "type-check": "tsc --noEmit"
   },
   "dependencies": {

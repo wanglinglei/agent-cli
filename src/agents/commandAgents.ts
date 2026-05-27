@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 实现本地命令意图解析、生成、确认、执行和反馈 Agent 节点。
  * @FilePath: /agents-cli/src/agents/commandAgents.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @LastEditTime: 2026-05-27 22:20:00
  */
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
@@ -206,7 +206,9 @@ export async function confirmNode(
   }
 
   const rl = createInterface({ input, output });
-  const answer = await rl.question("确认执行以上命令吗？输入 y/yes 执行：");
+  const answer = await rl.question(
+    runtime.logger.userPrompt("确认执行以上命令吗？输入 y/yes 执行："),
+  );
   rl.close();
 
   const userApproved = ["y", "yes"].includes(answer.trim().toLowerCase());

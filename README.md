@@ -2,9 +2,13 @@
 
 Node + LangGraph + LangChain + TypeScript 多 Agent 自动化任务执行器。
 
+所有能力共享一个命令行入口：`agents`。
+用户只输入自然语言任务，不选择 Agent 名称；系统会先做意图分析，再自动决定调用哪条 Agent 流程。
+
 用户只需要在命令行输入自然语言任务，系统会由 `routerAgent` 自动判断要调用哪组 Agent：
 
 - 资料型任务：搜索 Agent -> 总结 Agent -> 写作 Agent -> 格式化 Agent
+- 行政边界任务：边界意图解析 Agent -> 城市编码解析 Agent -> 边界下载/产物输出 Agent
 - 本地命令任务：意图解析 Agent -> 命令生成 Agent -> 风险检查 Agent -> 用户确认 -> Shell 执行 Agent -> 反馈 Agent
 
 终端只展示运行状态和最终产物路径。搜索结果、摘要、初稿、命令计划等过程产物不会写文件；只有最终结果会写入 `output/<最终Agent>/`。
@@ -29,15 +33,20 @@ agents-cli/
     ├── graph/
     │   └── index.ts
     ├── prompts/
+    │   ├── boundaryPrompts.ts
     │   ├── commandPrompts.ts
     │   ├── jsonRepairPrompts.ts
     │   ├── researchPrompts.ts
     │   └── routerPrompts.ts
     ├── agents/
+    │   ├── boundaryAgents.ts
     │   ├── commandAgents.ts
     │   ├── researchAgents.ts
     │   └── routerAgent.ts
     ├── tools/
+    │   ├── boundaryCityCode.ts
+    │   ├── boundaryFetch.ts
+    │   ├── boundarySvg.ts
     │   ├── riskChecker.ts
     │   ├── shellExecutor.ts
     │   └── tavilySearch.ts
@@ -52,6 +61,9 @@ agents-cli/
 
 ```text
 output/
+├── boundaryOutputAgent/
+│   ├── <runId>-boundary-geojson.geojson
+│   └── <runId>-boundary-svg.svg
 ├── formatAgent/
 │   └── <runId>-final.md
 └── feedbackAgent/
@@ -81,34 +93,78 @@ LLM_MODEL=qwen-plus
 
 ## 使用
 
+统一入口命令：
+
+```bash
+agents
+```
+
+或：
+
+```bash
+agents "你的自然语言任务"
+```
+
+如果当前还没安装到 PATH，可在项目根目录先直接用：
+
+```bash
+./agents
+```
+
+交互式输入任务：
+
+```bash
+agents
+```
+
+启动后直接在终端输入自然语言任务即可。
+
+直接传入自然语言任务：
+
+```bash
+agents "写一篇 LangGraph 多 Agent 学习笔记，包含资料来源并生成 markdown"
+```
+
 资料型任务：
 
 ```bash
-pnpm start -- "写一篇 LangGraph 多 Agent 学习笔记，包含资料来源并生成 markdown"
+agents "写一篇 LangGraph 多 Agent 学习笔记，包含资料来源并生成 markdown"
+```
+
+行政边界 SVG 任务：
+
+```bash
+agents "生成高邮市行政边界 SVG，填充浅蓝色，描边深灰色"
+```
+
+行政边界 GeoJSON 任务：
+
+```bash
+agents "下载321084的行政边界 geojson"
 ```
 
 本地命令型任务：
 
 ```bash
-pnpm start -- "帮我批量压缩当前目录所有图片"
+agents "帮我批量压缩当前目录所有图片"
 ```
 
 Git 任务：
 
 ```bash
-pnpm start -- "帮我查看当前仓库最近三次提交并解释"
+agents "帮我查看当前仓库最近三次提交并解释"
 ```
 
 打印中间状态：
 
 ```bash
-pnpm start -- --verbose "帮我批量压缩当前目录所有图片"
+agents --verbose "帮我批量压缩当前目录所有图片"
 ```
 
 跳过命令确认：
 
 ```bash
-pnpm start -- --yes "帮我查看当前仓库最近三次提交并解释"
+agents --yes "帮我查看当前仓库最近三次提交并解释"
 ```
 
 ## 安全策略

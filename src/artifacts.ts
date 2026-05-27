@@ -3,14 +3,14 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 管理最终 Agent 产物的文件写入和路径展示。
  * @FilePath: /agents-cli/src/artifacts.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @LastEditTime: 2026-05-27 20:05:00
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { AgentArtifact, AgentRuntime, AgentState } from "./types.js";
 
-type ArtifactExtension = "json" | "md" | "txt" | "sh";
+type ArtifactExtension = "geojson" | "json" | "md" | "svg" | "txt" | "sh";
 
 interface WriteArtifactOptions {
   agentName: string;
@@ -34,7 +34,7 @@ function sanitizePathSegment(value: string): string {
  * 将产物内容转换为最终写入文件的字符串。
  */
 function stringifyArtifactContent(content: unknown, extension: ArtifactExtension): string {
-  if (extension === "json") {
+  if (extension === "json" || extension === "geojson") {
     return `${JSON.stringify(content, null, 2)}\n`;
   }
 

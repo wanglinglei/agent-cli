@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 实现自然语言任务的多 Agent 自动路由节点。
  * @FilePath: /agents-cli/src/agents/routerAgent.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @LastEditTime: 2026-05-27 20:05:00
  */
 import { z } from "zod";
 
@@ -13,7 +13,7 @@ import { truncateText } from "../text.js";
 import type { AgentRuntime, AgentState, RouteDecision } from "../types.js";
 
 const routeSchema = z.object({
-  route: z.enum(["research_write", "local_command", "unknown"]),
+  route: z.enum(["research_write", "local_command", "boundary_svg", "unknown"]),
   reason: z.string(),
   confidence: z.number().min(0).max(1),
 });

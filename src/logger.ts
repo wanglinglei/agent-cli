@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 封装 CLI 运行过程中的 chalk 彩色日志输出。
  * @FilePath: /agents-cli/src/logger.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @LastEditTime: 2026-05-27 22:20:00
  */
 import chalk from "chalk";
 
@@ -80,6 +80,13 @@ export class Logger {
    */
   command(command: string): void {
     console.log(chalk.magenta(`  $ ${command}`));
+  }
+
+  /**
+   * 返回需要用户输入时使用的高亮提示文案。
+   */
+  userPrompt(message: string): string {
+    return `${chalk.black.bgYellow(" 需要输入 ")} ${chalk.yellowBright.bold(message)} `;
   }
 }
 

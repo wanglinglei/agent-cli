@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 定义多 Agent CLI 的共享类型和状态结构。
  * @FilePath: /agents-cli/src/types.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @LastEditTime: 2026-05-27 20:05:00
  */
 import type { ChatOpenAI } from "@langchain/openai";
 
@@ -14,9 +14,14 @@ import type { Logger } from "./logger.js";
  *
  * - research_write：需要联网搜索、总结、写作和 Markdown 格式化。
  * - local_command：需要把自然语言转换为 Shell/Git/脚本命令。
+ * - boundary_svg：需要解析行政区划边界并输出 SVG 或 GeoJSON 文件。
  * - unknown：任务目标不明确，系统不会继续执行危险动作。
  */
-export type RouteType = "research_write" | "local_command" | "unknown";
+export type RouteType =
+  | "research_write"
+  | "local_command"
+  | "boundary_svg"
+  | "unknown";
 
 /**
  * 命令风险等级。
@@ -102,6 +107,43 @@ export interface CommandPlan {
 }
 
 /**
+ * 边界 SVG 样式配置。
+ */
+export interface BoundarySvgStyle {
+  fillColor: string;
+  strokeColor: string;
+  strokeWidth: number;
+}
+
+/**
+ * 边界任务动作类型。
+ */
+export type BoundaryAction = "generate_boundary" | "update_svg_style";
+
+/**
+ * 边界 SVG 意图解析结果。
+ *
+ * 该结构只保留单次 CLI 运行所需的最小字段，不维护服务端会话上下文。
+ */
+export interface BoundaryIntent {
+  action: BoundaryAction;
+  cityCode?: string;
+  cityName?: string;
+  needSvg: boolean;
+  year: 2023;
+  stylePatch?: Partial<BoundarySvgStyle>;
+}
+
+/**
+ * 城市编码解析结果。
+ */
+export interface BoundaryCityResolution {
+  cityCode: string;
+  cityName?: string;
+  source: "explicit_input" | "tavily";
+}
+
+/**
  * 风险检查结果。
  */
 export interface RiskAssessment {
@@ -173,6 +215,8 @@ export interface AgentState {
   finalMarkdown?: string;
   commandIntent?: CommandIntent;
   commandPlan?: CommandPlan;
+  boundaryIntent?: BoundaryIntent;
+  boundaryResolution?: BoundaryCityResolution;
   risk?: RiskAssessment;
   userApproved?: boolean;
   executionResult?: ExecutionResult;
