@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 定义多 Agent CLI 的共享类型和状态结构。
  * @FilePath: /agents-cli/src/types.ts
- * @LastEditTime: 2026-05-27 20:05:00
+ * @LastEditTime: 2026-05-28 10:50:05
  */
 import type { ChatOpenAI } from "@langchain/openai";
 
@@ -26,7 +26,8 @@ export type RouteType =
 /**
  * 命令风险等级。
  *
- * blocked 表示命令包含明显危险操作，第一版直接拦截，不进入用户确认阶段。
+ * blocked 表示命令包含禁止执行的危险操作；high 表示必须人工确认后执行；
+ * medium 和 low 表示通过风险检查后可直接执行。
  */
 export type RiskLevel = "low" | "medium" | "high" | "blocked";
 

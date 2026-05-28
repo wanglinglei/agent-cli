@@ -3,13 +3,38 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 读取并校验 CLI 运行所需的环境变量配置。
  * @FilePath: /agents-cli/src/config.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @LastEditTime: 2026-05-28 10:39:03
  */
-import "dotenv/config";
-
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
 import type { AppConfig } from "./types.js";
+
+const currentFilePath = fileURLToPath(import.meta.url);
+const cliProjectEnvPath = path.resolve(
+  path.dirname(currentFilePath),
+  "..",
+  ".env",
+);
+const cwdEnvPath = path.resolve(process.cwd(), ".env");
+
+/**
+ * 加载运行目录和 CLI 项目目录下的 .env 配置。
+ *
+ * 先加载当前工作目录，允许目标项目提供自己的配置；再加载 CLI 项目根目录，
+ * 作为全局命令在其他目录运行时的兜底配置。
+ */
+function loadEnvFiles(): void {
+  loadDotenv({ path: cwdEnvPath, quiet: true });
+
+  if (cliProjectEnvPath !== cwdEnvPath) {
+    loadDotenv({ path: cliProjectEnvPath, quiet: true });
+  }
+}
+
+loadEnvFiles();
 
 const configSchema = z.object({
   dashscopeApiKey: z.string().min(1, "缺少 DASHSCOPE_API_KEY"),

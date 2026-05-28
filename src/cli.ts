@@ -4,7 +4,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 提供自然语言单入口 CLI 并启动多 Agent 执行流程。
  * @FilePath: /agents-cli/src/cli.ts
- * @LastEditTime: 2026-05-27 22:20:00
+ * @LastEditTime: 2026-05-28 10:50:05
  */
 
 import chalk from "chalk";
@@ -76,7 +76,7 @@ async function main(): Promise<void> {
     .description("Node + LangGraph + LangChain 多 Agent 自动化任务执行器")
     .argument("[task...]", "自然语言任务")
     .option("-v, --verbose", "打印详细中间状态", false)
-    .option("-y, --yes", "跳过本地命令执行确认", false)
+    .option("-y, --yes", "跳过需要人工确认的本地命令", false)
     .action(
       async (
         taskParts: string[] | undefined,

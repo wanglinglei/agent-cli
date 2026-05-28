@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 检查本地命令计划的风险等级并拦截危险命令。
  * @FilePath: /agents-cli/src/tools/riskChecker.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @LastEditTime: 2026-05-28 10:56:10
  */
 import type {
   CommandPlan,
@@ -14,7 +14,6 @@ import type {
 
 const blockedPatterns: Array<{ pattern: RegExp; reason: string }> = [
   { pattern: /\brm\s+-[^|&;]*r[^|&;]*f\b/, reason: "包含 rm -rf 强制递归删除。" },
-  { pattern: /\bsudo\b/, reason: "包含 sudo 提权操作。" },
   { pattern: /\bchmod\s+-R\b/, reason: "包含 chmod -R 批量权限修改。" },
   { pattern: /\bchown\s+-R\b/, reason: "包含 chown -R 批量属主修改。" },
   {
@@ -29,6 +28,7 @@ const blockedPatterns: Array<{ pattern: RegExp; reason: string }> = [
 ];
 
 const highRiskPatterns: Array<{ pattern: RegExp; reason: string }> = [
+  { pattern: /\bsudo\b/, reason: "包含 sudo 提权操作，需要人工确认。" },
   { pattern: /\brm\b/, reason: "包含删除命令 rm。" },
   { pattern: /\bmv\b.+\s+\/\b/, reason: "疑似移动文件到根目录相关路径。" },
   { pattern: />\s*[^|&;]+/, reason: "包含重定向写入，可能覆盖文件。" },
@@ -89,8 +89,8 @@ function assessSingleCommand(command: GeneratedCommand): {
 /**
  * 对命令计划做安全检查。
  *
- * 第一版选择偏保守策略：blocked 直接拦截，high 也不自动执行，必须后续设计更强
- * 二次确认后才能放开。
+ * blocked 风险直接拦截；high 风险允许进入人工确认；medium 和 low 风险
+ * 通过检查后可直接执行。
  */
 export function checkCommandRisk(plan: CommandPlan): RiskAssessment {
   const assessments = plan.commands.map(assessSingleCommand);
@@ -108,9 +108,9 @@ export function checkCommandRisk(plan: CommandPlan): RiskAssessment {
   if (assessments.some((item) => item.level === "high")) {
     return {
       level: "high",
-      blocked: true,
+      blocked: false,
       reasons,
-      safeToExecute: false,
+      safeToExecute: true,
     };
   }
 

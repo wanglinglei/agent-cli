@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 构建 LangGraph 多 Agent 状态图和初始运行状态。
  * @FilePath: /agents-cli/src/graph/index.ts
- * @LastEditTime: 2026-05-27 20:05:00
+ * @LastEditTime: 2026-05-28 10:50:05
  */
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
@@ -104,7 +104,8 @@ function routeAfterRouter(state: GraphState): string {
 /**
  * 风险检查后的条件分支。
  *
- * blocked/high 风险会进入反馈 Agent 生成拦截说明；通过检查的命令进入用户确认节点。
+ * blocked 风险会进入反馈 Agent 生成拦截说明；high 风险进入用户确认节点；
+ * medium 和 low 风险通过检查后直接进入执行节点。
  */
 function routeAfterRisk(state: GraphState): string {
   if (state.finalAnswer) {
@@ -115,7 +116,11 @@ function routeAfterRisk(state: GraphState): string {
     return "feedbackAgent";
   }
 
-  return "confirmNode";
+  if (state.risk.level === "high") {
+    return "confirmNode";
+  }
+
+  return "shellExecutor";
 }
 
 /**
@@ -190,6 +195,7 @@ export function buildAgentGraph(runtime: AgentRuntime) {
     })
     .addConditionalEdges("riskAgent", routeAfterRisk, {
       confirmNode: "confirmNode",
+      shellExecutor: "shellExecutor",
       feedbackAgent: "feedbackAgent",
       [END]: END,
     })

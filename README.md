@@ -9,9 +9,9 @@ Node + LangGraph + LangChain + TypeScript 多 Agent 自动化任务执行器。
 
 - 资料型任务：搜索 Agent -> 总结 Agent -> 写作 Agent -> 格式化 Agent
 - 行政边界任务：边界意图解析 Agent -> 城市编码解析 Agent -> 边界下载/产物输出 Agent
-- 本地命令任务：意图解析 Agent -> 命令生成 Agent -> 风险检查 Agent -> 用户确认 -> Shell 执行 Agent -> 反馈 Agent
+- 本地命令任务：意图解析 Agent -> 命令生成 Agent -> 风险检查 Agent -> Shell 执行或高风险确认 -> 反馈 Agent
 
-终端只展示运行状态和最终产物路径。搜索结果、摘要、初稿、命令计划等过程产物不会写文件；只有最终结果会写入 `output/<最终Agent>/`。
+终端展示运行状态、最终结果和必要的产物路径。搜索结果、摘要、初稿、命令计划等过程产物不会写文件；只有明确需要文件产物的任务才写入 `output/<最终Agent>/`。
 
 ## 项目架构
 
@@ -64,9 +64,7 @@ output/
 ├── boundaryOutputAgent/
 │   ├── <runId>-boundary-geojson.geojson
 │   └── <runId>-boundary-svg.svg
-├── formatAgent/
-│   └── <runId>-final.md
-└── feedbackAgent/
+└── formatAgent/
     └── <runId>-final.md
 ```
 
@@ -74,6 +72,33 @@ output/
 
 ```bash
 pnpm install
+```
+
+安装到全局命令，推荐开发时使用全局链接。
+
+如果 pnpm 还没有配置过全局命令目录，先执行：
+
+```bash
+pnpm setup
+```
+
+然后重开终端，或重新加载 shell 配置：
+
+```bash
+source ~/.zshrc
+```
+
+再回到项目根目录执行：
+
+```bash
+pnpm link --global
+```
+
+之后在任意终端窗口都可以使用：
+
+```bash
+agents
+agents "你的自然语言任务"
 ```
 
 复制环境变量示例：
@@ -90,6 +115,8 @@ TAVILY_API_KEY=your_tavily_api_key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen-plus
 ```
+
+全局 `agents` 命令会优先读取当前工作目录的 `.env`，再读取 CLI 项目根目录的 `.env` 作为兜底。
 
 ## 使用
 
@@ -161,7 +188,7 @@ agents "帮我查看当前仓库最近三次提交并解释"
 agents --verbose "帮我批量压缩当前目录所有图片"
 ```
 
-跳过命令确认：
+跳过需要人工确认的命令：
 
 ```bash
 agents --yes "帮我查看当前仓库最近三次提交并解释"
@@ -169,12 +196,19 @@ agents --yes "帮我查看当前仓库最近三次提交并解释"
 
 ## 安全策略
 
-本地命令默认必须人工确认后才会执行。
+本地命令必须先经过风险检查，执行策略由风险等级决定：
 
-第一版会拦截这些高危命令：
+- `blocked`：禁止执行，直接生成拦截说明。
+- `high`：展示命令和风险原因，人工确认后执行。
+- `medium` 和 `low`：通过风险检查后直接执行。
+
+`--yes` 只跳过需要人工确认的命令，不跳过风险检查。
+
+`high` 规则包含 `sudo`，会在人工确认后执行。
+
+`blocked` 规则会禁止执行这些命令：
 
 - `rm -rf`
-- `sudo`
 - `chmod -R`
 - `chown -R`
 - `git reset --hard`

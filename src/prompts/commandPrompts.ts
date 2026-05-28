@@ -1,12 +1,10 @@
 /*
  * @Author: wanglinglei
  * @Date: 2026-05-27 19:16:50
- * @Description: 维护本地命令意图、计划和执行反馈相关提示词。
+ * @Description: 维护本地命令意图、计划和未知任务相关提示词。
  * @FilePath: /agents-cli/src/prompts/commandPrompts.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @LastEditTime: 2026-05-28 11:01:33
  */
-import type { CommandPlan, ExecutionResult, RiskAssessment } from "../types.js";
-
 /**
  * 构建命令意图解析提示词。
  */
@@ -39,12 +37,13 @@ export function buildCommandPlanPrompt(
   return `你是命令生成 Agent。请把用户目标转换为安全、可执行、可审查的命令计划。
 
 安全要求：
-1. 不要生成 sudo、rm -rf、git reset --hard、git clean -fd。
-2. 默认不要覆盖原文件。
-3. 需要批量处理图片时，在 macOS 优先使用 sips，并输出到 compressed/ 目录。
-4. 如果需要创建目录，命令可以包含 mkdir -p。
-5. 命令必须能在 zsh 中执行。
-6. 只输出 JSON，不要 Markdown。
+1. 不要生成 rm -rf、git reset --hard、git clean -fd。
+2. sudo 只有在用户目标明确需要提权时才可生成，后续会要求人工确认。
+3. 默认不要覆盖原文件。
+4. 需要批量处理图片时，在 macOS 优先使用 sips，并输出到 compressed/ 目录。
+5. 如果需要创建目录，命令可以包含 mkdir -p。
+6. 命令必须能在 zsh 中执行。
+7. 只输出 JSON，不要 Markdown。
 
 输出 JSON：
 {
@@ -65,37 +64,6 @@ ${commandIntentJson}
 
 用户原始任务：
 ${input}`;
-}
-
-/**
- * 构建命令执行反馈提示词。
- */
-export function buildCommandFeedbackPrompt(params: {
-  input: string;
-  commandPlan: CommandPlan | undefined;
-  risk: RiskAssessment | undefined;
-  executionResult: ExecutionResult | undefined;
-  stringify: (value: unknown) => string;
-}): string {
-  return `你是命令执行反馈 Agent。请解释命令执行结果，并给出必要的下一步建议。
-
-用户任务：
-${params.input}
-
-命令计划：
-${params.stringify(params.commandPlan)}
-
-风险检查：
-${params.stringify(params.risk)}
-
-执行结果：
-${params.stringify(params.executionResult)}
-
-要求：
-1. 用中文回答。
-2. 先说明是否成功。
-3. 如果失败，指出最可能的原因和下一步排查命令。
-4. 不要声称执行了没有执行的命令。`;
 }
 
 /**

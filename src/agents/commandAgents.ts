@@ -3,17 +3,15 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 实现本地命令意图解析、生成、确认、执行和反馈 Agent 节点。
  * @FilePath: /agents-cli/src/agents/commandAgents.ts
- * @LastEditTime: 2026-05-27 22:20:00
+ * @LastEditTime: 2026-05-28 11:01:33
  */
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
 import { z } from "zod";
 
-import { appendArtifact, formatArtifactPath, writeAgentArtifact } from "../artifacts.js";
-import { invokeJson, invokeText } from "../json.js";
+import { invokeJson } from "../json.js";
 import {
-  buildCommandFeedbackPrompt,
   buildCommandIntentPrompt,
   buildCommandPlanPrompt,
   buildUnknownTaskMessage,
@@ -26,6 +24,7 @@ import type {
   AgentState,
   CommandIntent,
   CommandPlan,
+  SingleCommandResult,
 } from "../types.js";
 
 const commandIntentSchema = z.object({
@@ -51,6 +50,75 @@ const commandPlanSchema = z.object({
   requiresScript: z.boolean(),
   notes: z.array(z.string()),
 });
+
+/**
+ * 提取命令输出中最有价值的一小段错误上下文。
+ *
+ * 优先返回 stderr；如果命令只写 stdout，则退回 stdout。输出会被截断，避免终端
+ * 被大段日志淹没。
+ */
+function getCommandErrorOutput(result: SingleCommandResult): string {
+  const outputText = (result.stderr || result.stdout).trim();
+  return outputText ? truncateText(outputText, 1_200) : "命令没有输出错误详情。";
+}
+
+/**
+ * 根据常见命令错误输出推断可能原因。
+ *
+ * 该函数不修改状态；如果无法识别具体模式，会给出保守的通用解释。
+ */
+function inferFailureReasons(result: SingleCommandResult): string[] {
+  const text = `${result.stderr}\n${result.stdout}`.toLowerCase();
+  const reasons: string[] = [];
+
+  if (result.timedOut) {
+    reasons.push("命令超过 60 秒超时，可能是网络较慢、远端无响应，或命令在等待交互输入。");
+  }
+
+  if (text.includes("already exists and is not an empty directory")) {
+    reasons.push("目标目录已存在且不是空目录，Git 无法 clone 到该路径。");
+  }
+
+  if (text.includes("repository not found")) {
+    reasons.push("仓库不存在、地址拼写错误，或当前账号没有访问权限。");
+  }
+
+  if (text.includes("could not resolve host") || text.includes("failed to connect")) {
+    reasons.push("网络、DNS 或代理连接失败，无法访问远程服务。");
+  }
+
+  if (text.includes("authentication failed") || text.includes("permission denied")) {
+    reasons.push("认证或权限不足，可能需要登录、配置 token/SSH key，或调整文件权限。");
+  }
+
+  if (text.includes("command not found")) {
+    reasons.push("命令未安装，或命令所在目录不在 PATH 中。");
+  }
+
+  if (text.includes("no such file or directory")) {
+    reasons.push("引用的文件或目录不存在。");
+  }
+
+  if (reasons.length === 0) {
+    reasons.push("命令返回非零退出码，请优先查看下方原始错误输出。");
+  }
+
+  return reasons;
+}
+
+/**
+ * 构建命令失败时直接展示给终端的反馈。
+ *
+ * 输入执行结果，输出简短失败说明、可能原因和原始错误片段；不会写入产物文件。
+ */
+function buildCommandFailureAnswer(result: SingleCommandResult): string {
+  const reasons = inferFailureReasons(result)
+    .map((reason) => `- ${reason}`)
+    .join("\n");
+  const exitCodeText = result.exitCode === null ? "未知" : String(result.exitCode);
+
+  return `命令执行失败。\n\n失败命令：\`${result.command}\`\n退出码：${exitCodeText}\n\n可能原因：\n${reasons}\n\n原始错误输出：\n${getCommandErrorOutput(result)}`;
+}
 
 /**
  * 命令意图解析 Agent。
@@ -172,7 +240,8 @@ export async function riskAgent(
 /**
  * 用户确认节点。
  *
- * 在终端展示命令、解释和风险原因，只有用户明确输入 y/yes 后才进入执行节点。
+ * 对 high 风险命令展示命令、解释和风险原因，只有用户明确输入 y/yes 后
+ * 才进入执行节点。
  */
 export async function confirmNode(
   state: AgentState,
@@ -220,8 +289,9 @@ export async function confirmNode(
 /**
  * 本地命令执行 Agent。
  *
- * 只执行已经通过风险检查且用户确认的命令。命令按顺序执行，任意一条失败后停止
- * 后续执行，避免在未知状态下继续修改本地环境。
+ * 只执行已经通过风险检查的命令。high 风险命令必须已获得用户确认；
+ * medium 和 low 风险命令可直接执行。命令按顺序执行，任意一条失败后停止后续
+ * 执行，避免在未知状态下继续修改本地环境。
  */
 export async function shellExecutorAgent(
   state: AgentState,
@@ -235,8 +305,18 @@ export async function shellExecutorAgent(
       throw new Error("缺少命令计划，无法执行。");
     }
 
-    if (!state.userApproved) {
-      runtime.logger.nodeSuccess(nodeName, "用户未确认，未执行命令");
+    if (!state.risk?.safeToExecute) {
+      runtime.logger.nodeSuccess(nodeName, "风险检查未通过，未执行命令");
+      return {
+        executionResult: {
+          success: false,
+          results: [],
+        },
+      };
+    }
+
+    if (state.risk.level === "high" && !state.userApproved) {
+      runtime.logger.nodeSuccess(nodeName, "high 风险命令未确认，未执行命令");
       return {
         executionResult: {
           success: false,
@@ -276,8 +356,8 @@ export async function shellExecutorAgent(
 /**
  * 执行反馈 Agent。
  *
- * 汇总风险检查、用户确认和命令执行结果，给出面向用户的最终解释；如果命令失败，
- * 会基于 stdout/stderr 给出排查建议。
+ * 汇总风险检查、用户确认和命令执行结果，直接给出面向终端的最终解释。命令型
+ * 任务默认不写产物文件；如果命令失败，会基于 stdout/stderr 给出可能原因。
  */
 export async function feedbackAgent(
   state: AgentState,
@@ -288,65 +368,41 @@ export async function feedbackAgent(
 
   try {
     if (state.risk?.blocked) {
-      const content = `命令已被安全策略拦截，未执行。\n\n原因：\n${state.risk.reasons
+      const finalAnswer = `命令已被安全策略拦截，未执行。\n\n原因：\n${state.risk.reasons
         .map((item) => `- ${item}`)
         .join("\n")}`;
-      const artifact = await writeAgentArtifact(state, runtime, {
-        agentName: nodeName,
-        label: "final",
-        extension: "md",
-        content,
-      });
-      const finalAnswer = `安全拦截说明已写入：${formatArtifactPath(
-        state.cwd,
-        artifact.filePath,
-      )}`;
       runtime.logger.nodeSuccess(nodeName, "已生成拦截说明");
-      return { finalAnswer, artifacts: appendArtifact(state, artifact) };
+      return { finalAnswer };
     }
 
     if (state.userApproved === false) {
-      const content = "用户未确认执行，命令已取消。";
-      const artifact = await writeAgentArtifact(state, runtime, {
-        agentName: nodeName,
-        label: "final",
-        extension: "md",
-        content,
-      });
-      const finalAnswer = `取消执行说明已写入：${formatArtifactPath(
-        state.cwd,
-        artifact.filePath,
-      )}`;
+      const finalAnswer = "用户未确认执行，命令已取消。";
       runtime.logger.nodeSuccess(nodeName, finalAnswer);
-      return { finalAnswer, artifacts: appendArtifact(state, artifact) };
+      return { finalAnswer };
     }
 
-    const content = await invokeText(
-      runtime.llm,
-      buildCommandFeedbackPrompt({
-        input: state.input,
-        commandPlan: state.commandPlan,
-        risk: state.risk,
-        executionResult: state.executionResult,
-        stringify: toPrettyJson,
-      }),
+    if (!state.executionResult) {
+      const finalAnswer = "命令未执行，未生成执行结果。";
+      runtime.logger.nodeSuccess(nodeName, finalAnswer);
+      return { finalAnswer };
+    }
+
+    if (state.executionResult.success) {
+      const finalAnswer = "命令执行成功。";
+      runtime.logger.nodeSuccess(nodeName, finalAnswer);
+      return { finalAnswer };
+    }
+
+    const failedResult = state.executionResult.results.find(
+      (result) => result.exitCode !== 0 || result.timedOut,
     );
 
-    const artifact = await writeAgentArtifact(state, runtime, {
-      agentName: nodeName,
-      label: "final",
-      extension: "md",
-      content,
-    });
-    const finalAnswer = `命令执行反馈已写入：${formatArtifactPath(
-      state.cwd,
-      artifact.filePath,
-    )}`;
+    const finalAnswer = failedResult
+      ? buildCommandFailureAnswer(failedResult)
+      : "命令执行失败，但没有捕获到具体失败命令。";
+    runtime.logger.nodeSuccess(nodeName, "已生成失败原因说明");
 
-    runtime.logger.nodeSuccess(nodeName, truncateText(finalAnswer));
-    runtime.logger.debug("最终反馈", content);
-
-    return { finalAnswer, artifacts: appendArtifact(state, artifact) };
+    return { finalAnswer };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
