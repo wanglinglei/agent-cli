@@ -1,8 +1,8 @@
 /*
  * @Author: wanglinglei
  * @Date: 2026-05-27 19:16:50
- * @Description: 维护本地命令意图、计划和未知任务相关提示词。
- * @FilePath: /agents-cli/src/prompts/commandPrompts.ts
+ * @Description: 维护本地命令意图和计划相关提示词。
+ * @FilePath: /agents-cli/src/agents/command/prompts.ts
  * @LastEditTime: 2026-05-28 11:01:33
  */
 /**
@@ -64,18 +64,4 @@ ${commandIntentJson}
 
 用户原始任务：
 ${input}`;
-}
-
-/**
- * 构建未知任务提示文案。
- */
-export function buildUnknownTaskMessage(reason: string | undefined): string {
-  return `我无法可靠判断这个任务应该走搜索写作流程还是本地命令流程，因此没有执行任何操作。
-
-路由原因：${reason ?? "未知"}
-
-请补充你希望我完成的具体目标，例如：
-- 写一篇包含资料来源的学习笔记
-- 帮我批量压缩当前目录所有图片
-- 帮我查看最近三次 Git 提交并解释`;
 }

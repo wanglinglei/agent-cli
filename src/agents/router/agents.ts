@@ -2,18 +2,27 @@
  * @Author: wanglinglei
  * @Date: 2026-05-27 19:16:50
  * @Description: 实现自然语言任务的多 Agent 自动路由节点。
- * @FilePath: /agents-cli/src/agents/routerAgent.ts
+ * @FilePath: /agents-cli/src/agents/router/agents.ts
  * @LastEditTime: 2026-05-27 20:05:00
  */
 import { z } from "zod";
 
-import { invokeJson } from "../json.js";
-import { buildRouterPrompt } from "../prompts/routerPrompts.js";
-import { truncateText } from "../text.js";
-import type { AgentRuntime, AgentState, RouteDecision } from "../types.js";
+import { invokeJson } from "../../json.js";
+import {
+  agentFlowRegistry,
+  getRegisteredRoutes,
+  isRegisteredRoute,
+} from "../../graph/agentRegistry.js";
+import { buildRouterPrompt } from "../../prompts/routerPrompts.js";
+import { truncateText } from "../../text.js";
+import type { AgentRuntime, AgentState, RouteDecision } from "../../types.js";
 
+const routeValues = [...getRegisteredRoutes(), "unknown"] as unknown as [
+  string,
+  ...string[],
+];
 const routeSchema = z.object({
-  route: z.enum(["research_write", "local_command", "boundary_svg", "unknown"]),
+  route: z.enum(routeValues),
   reason: z.string(),
   confidence: z.number().min(0).max(1),
 });
@@ -34,12 +43,12 @@ export async function routerAgent(
   try {
     const decision = await invokeJson<RouteDecision>(
       runtime.llm,
-      buildRouterPrompt(state.input),
+      buildRouterPrompt(state.input, agentFlowRegistry),
       routeSchema,
     );
 
     const normalized =
-      decision.confidence < 0.55
+      decision.confidence < 0.55 || (!isRegisteredRoute(decision.route) && decision.route !== "unknown")
         ? {
             ...decision,
             route: "unknown" as const,

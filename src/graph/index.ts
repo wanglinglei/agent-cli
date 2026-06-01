@@ -7,27 +7,14 @@
  */
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
+import { routerAgent } from "../agents/router/agents.js";
+import { unknownAgent } from "../agents/unknown/agents.js";
 import {
-  boundaryIntentAgent,
-  boundaryOutputAgent,
-  boundaryResolveAgent,
-} from "../agents/boundaryAgents.js";
-import {
-  commandAgent,
-  confirmNode,
-  feedbackAgent,
-  intentAgent,
-  riskAgent,
-  shellExecutorAgent,
-  unknownAgent,
-} from "../agents/commandAgents.js";
-import { routerAgent } from "../agents/routerAgent.js";
-import {
-  formatAgent,
-  searchAgent,
-  summaryAgent,
-  writingAgent,
-} from "../agents/researchAgents.js";
+  agentFlowRegistry,
+  isRegisteredRoute,
+} from "./agentRegistry.js";
+import { GRAPH_END } from "./flowTypes.js";
+import type { AgentNode } from "./flowTypes.js";
 import type { AgentRuntime, AgentState, CliOptions } from "../types.js";
 
 const AgentStateAnnotation = Annotation.Root({
@@ -37,18 +24,7 @@ const AgentStateAnnotation = Annotation.Root({
   autoApprove: Annotation<boolean>(),
   runId: Annotation<string>(),
   route: Annotation<AgentState["route"]>(),
-  searchQueries: Annotation<string[]>(),
-  searchResults: Annotation<AgentState["searchResults"]>(),
-  summary: Annotation<string | undefined>(),
-  draft: Annotation<string | undefined>(),
-  finalMarkdown: Annotation<string | undefined>(),
-  commandIntent: Annotation<AgentState["commandIntent"]>(),
-  commandPlan: Annotation<AgentState["commandPlan"]>(),
-  boundaryIntent: Annotation<AgentState["boundaryIntent"]>(),
-  boundaryResolution: Annotation<AgentState["boundaryResolution"]>(),
-  risk: Annotation<AgentState["risk"]>(),
-  userApproved: Annotation<boolean | undefined>(),
-  executionResult: Annotation<AgentState["executionResult"]>(),
+  pluginData: Annotation<Record<string, unknown>>(),
   finalAnswer: Annotation<string | undefined>(),
   artifacts: Annotation<AgentState["artifacts"]>(),
   errors: Annotation<string[]>(),
@@ -56,10 +32,6 @@ const AgentStateAnnotation = Annotation.Root({
 });
 
 type GraphState = typeof AgentStateAnnotation.State;
-type AgentNode = (
-  state: AgentState,
-  runtime: AgentRuntime,
-) => Promise<Partial<AgentState>>;
 
 /**
  * 创建 LangGraph 节点包装器。
@@ -86,134 +58,73 @@ function continueOrEnd(nextNode: string) {
  * 根据 routerAgent 的判断选择后续 Agent 流程。
  */
 function routeAfterRouter(state: GraphState): string {
-  if (state.route?.route === "research_write") {
-    return "research_write";
-  }
-
-  if (state.route?.route === "boundary_svg") {
-    return "boundary_svg";
-  }
-
-  if (state.route?.route === "local_command") {
-    return "local_command";
-  }
-
-  return "unknown";
-}
-
-/**
- * 风险检查后的条件分支。
- *
- * blocked 风险会进入反馈 Agent 生成拦截说明；high 风险进入用户确认节点；
- * medium 和 low 风险通过检查后直接进入执行节点。
- */
-function routeAfterRisk(state: GraphState): string {
-  if (state.finalAnswer) {
-    return END;
-  }
-
-  if (state.risk?.blocked || !state.risk?.safeToExecute) {
-    return "feedbackAgent";
-  }
-
-  if (state.risk.level === "high") {
-    return "confirmNode";
-  }
-
-  return "shellExecutor";
-}
-
-/**
- * 用户确认后的条件分支。
- *
- * 只有明确确认时才进入本地命令执行节点，否则直接进入反馈 Agent 说明已取消。
- */
-function routeAfterConfirm(state: GraphState): string {
-  return state.userApproved ? "shellExecutor" : "feedbackAgent";
+  const route = state.route?.route;
+  return route && isRegisteredRoute(route) ? route : "unknown";
 }
 
 /**
  * 构建多 Agent 状态图。
  *
- * 图中只有一个入口 routerAgent，用户输入的自然语言任务会先被路由，再进入资料型、
- * 边界 SVG 子流程或命令型子流程。后续新增 Agent 时，应优先扩展路由枚举和
- * 条件分支，而不是新增 CLI 入口。
+ * 图中只有一个入口 routerAgent，用户输入的自然语言任务会先被路由，再进入
+ * registry 中注册的业务流程。后续新增 Agent 时，应优先注册 flow definition，
+ * 而不是新增 CLI 入口或在图中分散硬编码分支。
  */
 export function buildAgentGraph(runtime: AgentRuntime) {
-  return new StateGraph(AgentStateAnnotation)
-    .addNode("routerAgent", bindNode(routerAgent, runtime))
-    .addNode("searchAgent", bindNode(searchAgent, runtime))
-    .addNode("summaryAgent", bindNode(summaryAgent, runtime))
-    .addNode("writingAgent", bindNode(writingAgent, runtime))
-    .addNode("formatAgent", bindNode(formatAgent, runtime))
-    .addNode("boundaryIntentAgent", bindNode(boundaryIntentAgent, runtime))
-    .addNode("boundaryResolveAgent", bindNode(boundaryResolveAgent, runtime))
-    .addNode("boundaryOutputAgent", bindNode(boundaryOutputAgent, runtime))
-    .addNode("intentAgent", bindNode(intentAgent, runtime))
-    .addNode("commandAgent", bindNode(commandAgent, runtime))
-    .addNode("riskAgent", bindNode(riskAgent, runtime))
-    .addNode("confirmNode", bindNode(confirmNode, runtime))
-    .addNode("shellExecutor", bindNode(shellExecutorAgent, runtime))
-    .addNode("feedbackAgent", bindNode(feedbackAgent, runtime))
-    .addNode("unknownAgent", bindNode(unknownAgent, runtime))
-    .addEdge(START, "routerAgent")
-    .addConditionalEdges("routerAgent", routeAfterRouter, {
-      research_write: "searchAgent",
-      boundary_svg: "boundaryIntentAgent",
-      local_command: "intentAgent",
-      unknown: "unknownAgent",
-    })
-    .addConditionalEdges("searchAgent", continueOrEnd("summaryAgent"), {
-      summaryAgent: "summaryAgent",
-      [END]: END,
-    })
-    .addConditionalEdges("summaryAgent", continueOrEnd("writingAgent"), {
-      writingAgent: "writingAgent",
-      [END]: END,
-    })
-    .addConditionalEdges("writingAgent", continueOrEnd("formatAgent"), {
-      formatAgent: "formatAgent",
-      [END]: END,
-    })
-    .addEdge("formatAgent", END)
-    .addConditionalEdges("boundaryIntentAgent", continueOrEnd("boundaryResolveAgent"), {
-      boundaryResolveAgent: "boundaryResolveAgent",
-      [END]: END,
-    })
-    .addConditionalEdges("boundaryResolveAgent", continueOrEnd("boundaryOutputAgent"), {
-      boundaryOutputAgent: "boundaryOutputAgent",
-      [END]: END,
-    })
-    .addEdge("boundaryOutputAgent", END)
-    .addConditionalEdges("intentAgent", continueOrEnd("commandAgent"), {
-      commandAgent: "commandAgent",
-      [END]: END,
-    })
-    .addConditionalEdges("commandAgent", continueOrEnd("riskAgent"), {
-      riskAgent: "riskAgent",
-      [END]: END,
-    })
-    .addConditionalEdges("riskAgent", routeAfterRisk, {
-      confirmNode: "confirmNode",
-      shellExecutor: "shellExecutor",
-      feedbackAgent: "feedbackAgent",
-      [END]: END,
-    })
-    .addConditionalEdges("confirmNode", routeAfterConfirm, {
-      shellExecutor: "shellExecutor",
-      feedbackAgent: "feedbackAgent",
-    })
-    .addEdge("shellExecutor", "feedbackAgent")
-    .addEdge("feedbackAgent", END)
-    .addEdge("unknownAgent", END)
-    .compile();
+  const graph = new StateGraph(AgentStateAnnotation) as any;
+
+  graph.addNode("routerAgent", bindNode(routerAgent, runtime));
+  graph.addNode("unknownAgent", bindNode(unknownAgent, runtime));
+
+  for (const flow of agentFlowRegistry) {
+    for (const flowNode of flow.nodes) {
+      graph.addNode(flowNode.name, bindNode(flowNode.node, runtime));
+    }
+  }
+
+  graph.addEdge(START, "routerAgent");
+  graph.addConditionalEdges("routerAgent", routeAfterRouter, {
+    ...Object.fromEntries(
+      agentFlowRegistry.map((flow) => [flow.route, flow.startNode]),
+    ),
+    unknown: "unknownAgent",
+  });
+
+  for (const flow of agentFlowRegistry) {
+    for (const edge of flow.edges) {
+      const destination = edge.to === GRAPH_END ? END : edge.to;
+      if (edge.stopWhenFinalAnswer && destination !== END) {
+        graph.addConditionalEdges(edge.from, continueOrEnd(destination), {
+          [destination]: destination,
+          [END]: END,
+        });
+        continue;
+      }
+
+      graph.addEdge(edge.from, destination);
+    }
+
+    for (const edge of flow.conditionalEdges ?? []) {
+      graph.addConditionalEdges(
+        edge.from,
+        (state: GraphState) => edge.choose(state as AgentState),
+        Object.fromEntries(
+          Object.entries(edge.targets).map(([key, value]) => [
+            key,
+            value === GRAPH_END ? END : value,
+          ]),
+        ),
+      );
+    }
+  }
+
+  graph.addEdge("unknownAgent", END);
+  return graph.compile();
 }
 
 /**
  * 创建图运行的初始状态。
  *
- * 所有数组字段在入口初始化，避免后续节点读取未定义状态；可选字段由对应 Agent
- * 在执行过程中写入。
+ * 顶层只初始化公共状态；业务流程私有状态由 pluginData 访问器按 route 管理。
  */
 export function createInitialState(input: string, options: CliOptions): AgentState {
   return {
@@ -222,8 +133,7 @@ export function createInitialState(input: string, options: CliOptions): AgentSta
     verbose: options.verbose,
     autoApprove: options.autoApprove,
     runId: crypto.randomUUID(),
-    searchQueries: [],
-    searchResults: [],
+    pluginData: {},
     artifacts: [],
     errors: [],
     events: [],

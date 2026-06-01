@@ -2,7 +2,7 @@
  * @Author: wanglinglei
  * @Date: 2026-05-27 19:16:50
  * @Description: 实现本地命令意图解析、生成、确认、执行和反馈 Agent 节点。
- * @FilePath: /agents-cli/src/agents/commandAgents.ts
+ * @FilePath: /agents-cli/src/agents/command/agents.ts
  * @LastEditTime: 2026-05-28 11:01:33
  */
 import { createInterface } from "node:readline/promises";
@@ -10,22 +10,22 @@ import { stdin as input, stdout as output } from "node:process";
 
 import { z } from "zod";
 
-import { invokeJson } from "../json.js";
+import { invokeJson } from "../../json.js";
+import { commandPluginData } from "./pluginData.js";
 import {
   buildCommandIntentPrompt,
   buildCommandPlanPrompt,
-  buildUnknownTaskMessage,
-} from "../prompts/commandPrompts.js";
-import { toPrettyJson, truncateText } from "../text.js";
-import { checkCommandRisk } from "../tools/riskChecker.js";
-import { executeCommandPlan } from "../tools/shellExecutor.js";
+} from "./prompts.js";
+import { toPrettyJson, truncateText } from "../../text.js";
+import { checkCommandRisk } from "../../tools/riskChecker.js";
+import { executeCommandPlan } from "../../tools/shellExecutor.js";
 import type {
   AgentRuntime,
   AgentState,
   CommandIntent,
   CommandPlan,
   SingleCommandResult,
-} from "../types.js";
+} from "../../types.js";
 
 const commandIntentSchema = z.object({
   goal: z.string(),
@@ -146,7 +146,7 @@ export async function intentAgent(
     );
     runtime.logger.debug("命令意图", commandIntent);
 
-    return { commandIntent };
+    return { pluginData: commandPluginData.update(state, { commandIntent }) };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
@@ -167,22 +167,23 @@ export async function commandAgent(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "commandAgent";
+  const commandData = commandPluginData.read(state);
   runtime.logger.nodeStart(
     nodeName,
-    truncateText(state.commandIntent?.goal ?? state.input),
+    truncateText(commandData.commandIntent?.goal ?? state.input),
   );
 
   try {
     const commandPlan = await invokeJson<CommandPlan>(
       runtime.llm,
-      buildCommandPlanPrompt(state.input, toPrettyJson(state.commandIntent)),
+      buildCommandPlanPrompt(state.input, toPrettyJson(commandData.commandIntent)),
       commandPlanSchema,
     );
 
     runtime.logger.nodeSuccess(nodeName, `生成 ${commandPlan.commands.length} 条命令`);
     runtime.logger.debug("命令计划", commandPlan);
 
-    return { commandPlan };
+    return { pluginData: commandPluginData.update(state, { commandPlan }) };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
@@ -203,17 +204,18 @@ export async function riskAgent(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "riskAgent";
+  const commandData = commandPluginData.read(state);
   runtime.logger.nodeStart(
     nodeName,
-    `${state.commandPlan?.commands.length ?? 0} 条命令`,
+    `${commandData.commandPlan?.commands.length ?? 0} 条命令`,
   );
 
   try {
-    if (!state.commandPlan) {
+    if (!commandData.commandPlan) {
       throw new Error("缺少命令计划，无法检查风险。");
     }
 
-    const risk = checkCommandRisk(state.commandPlan);
+    const risk = checkCommandRisk(commandData.commandPlan);
 
     if (risk.blocked) {
       runtime.logger.warn(`命令被拦截：${risk.reasons.join("；")}`);
@@ -222,17 +224,19 @@ export async function riskAgent(
     runtime.logger.nodeSuccess(nodeName, `风险等级：${risk.level}`);
     runtime.logger.debug("风险检查结果", risk);
 
-    return { risk };
+    return { pluginData: commandPluginData.update(state, { risk }) };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
       errors: [...state.errors, error instanceof Error ? error.message : String(error)],
-      risk: {
-        level: "blocked",
-        blocked: true,
-        reasons: ["风险检查失败，默认拦截。"],
-        safeToExecute: false,
-      },
+      pluginData: commandPluginData.update(state, {
+        risk: {
+          level: "blocked",
+          blocked: true,
+          reasons: ["风险检查失败，默认拦截。"],
+          safeToExecute: false,
+        },
+      }),
     };
   }
 }
@@ -248,15 +252,16 @@ export async function confirmNode(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "confirmNode";
+  const commandData = commandPluginData.read(state);
   runtime.logger.nodeStart(nodeName, "等待用户确认命令执行");
 
-  if (!state.commandPlan || !state.risk?.safeToExecute) {
+  if (!commandData.commandPlan || !commandData.risk?.safeToExecute) {
     runtime.logger.nodeSuccess(nodeName, "命令不可执行，跳过确认");
-    return { userApproved: false };
+    return { pluginData: commandPluginData.update(state, { userApproved: false }) };
   }
 
   runtime.logger.info("即将执行以下命令：");
-  for (const [index, item] of state.commandPlan.commands.entries()) {
+  for (const [index, item] of commandData.commandPlan.commands.entries()) {
     runtime.logger.info(`${index + 1}. ${item.explanation}`);
     runtime.logger.command(item.command);
     if (item.expectedOutput) {
@@ -264,14 +269,14 @@ export async function confirmNode(
     }
   }
 
-  if (state.risk.reasons.length > 0) {
-    runtime.logger.warn(`风险提示：${state.risk.reasons.join("；")}`);
+  if (commandData.risk.reasons.length > 0) {
+    runtime.logger.warn(`风险提示：${commandData.risk.reasons.join("；")}`);
   }
 
   if (state.autoApprove) {
     runtime.logger.warn("--yes 已开启，将跳过交互确认。");
     runtime.logger.nodeSuccess(nodeName, "用户确认：yes");
-    return { userApproved: true };
+    return { pluginData: commandPluginData.update(state, { userApproved: true }) };
   }
 
   const rl = createInterface({ input, output });
@@ -283,7 +288,7 @@ export async function confirmNode(
   const userApproved = ["y", "yes"].includes(answer.trim().toLowerCase());
   runtime.logger.nodeSuccess(nodeName, userApproved ? "用户确认：yes" : "用户拒绝执行");
 
-  return { userApproved };
+  return { pluginData: commandPluginData.update(state, { userApproved }) };
 }
 
 /**
@@ -298,39 +303,44 @@ export async function shellExecutorAgent(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "shellExecutor";
+  const commandData = commandPluginData.read(state);
   runtime.logger.nodeStart(nodeName, state.cwd);
 
   try {
-    if (!state.commandPlan) {
+    if (!commandData.commandPlan) {
       throw new Error("缺少命令计划，无法执行。");
     }
 
-    if (!state.risk?.safeToExecute) {
+    if (!commandData.risk?.safeToExecute) {
       runtime.logger.nodeSuccess(nodeName, "风险检查未通过，未执行命令");
       return {
-        executionResult: {
-          success: false,
-          results: [],
-        },
+        pluginData: commandPluginData.update(state, {
+          executionResult: {
+            success: false,
+            results: [],
+          },
+        }),
       };
     }
 
-    if (state.risk.level === "high" && !state.userApproved) {
+    if (commandData.risk.level === "high" && !commandData.userApproved) {
       runtime.logger.nodeSuccess(nodeName, "high 风险命令未确认，未执行命令");
       return {
-        executionResult: {
-          success: false,
-          results: [],
-        },
+        pluginData: commandPluginData.update(state, {
+          executionResult: {
+            success: false,
+            results: [],
+          },
+        }),
       };
     }
 
-    for (const command of state.commandPlan.commands) {
+    for (const command of commandData.commandPlan.commands) {
       runtime.logger.command(command.command);
     }
 
     const executionResult = await executeCommandPlan(
-      state.commandPlan.commands,
+      commandData.commandPlan.commands,
       state.cwd,
     );
 
@@ -340,15 +350,17 @@ export async function shellExecutorAgent(
     );
     runtime.logger.debug("执行结果", executionResult);
 
-    return { executionResult };
+    return { pluginData: commandPluginData.update(state, { executionResult }) };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
       errors: [...state.errors, error instanceof Error ? error.message : String(error)],
-      executionResult: {
-        success: false,
-        results: [],
-      },
+      pluginData: commandPluginData.update(state, {
+        executionResult: {
+          success: false,
+          results: [],
+        },
+      }),
     };
   }
 }
@@ -364,36 +376,37 @@ export async function feedbackAgent(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "feedbackAgent";
+  const commandData = commandPluginData.read(state);
   runtime.logger.nodeStart(nodeName, "整理命令执行反馈");
 
   try {
-    if (state.risk?.blocked) {
-      const finalAnswer = `命令已被安全策略拦截，未执行。\n\n原因：\n${state.risk.reasons
+    if (commandData.risk?.blocked) {
+      const finalAnswer = `命令已被安全策略拦截，未执行。\n\n原因：\n${commandData.risk.reasons
         .map((item) => `- ${item}`)
         .join("\n")}`;
       runtime.logger.nodeSuccess(nodeName, "已生成拦截说明");
       return { finalAnswer };
     }
 
-    if (state.userApproved === false) {
+    if (commandData.userApproved === false) {
       const finalAnswer = "用户未确认执行，命令已取消。";
       runtime.logger.nodeSuccess(nodeName, finalAnswer);
       return { finalAnswer };
     }
 
-    if (!state.executionResult) {
+    if (!commandData.executionResult) {
       const finalAnswer = "命令未执行，未生成执行结果。";
       runtime.logger.nodeSuccess(nodeName, finalAnswer);
       return { finalAnswer };
     }
 
-    if (state.executionResult.success) {
+    if (commandData.executionResult.success) {
       const finalAnswer = "命令执行成功。";
       runtime.logger.nodeSuccess(nodeName, finalAnswer);
       return { finalAnswer };
     }
 
-    const failedResult = state.executionResult.results.find(
+    const failedResult = commandData.executionResult.results.find(
       (result) => result.exitCode !== 0 || result.timedOut,
     );
 
@@ -410,23 +423,4 @@ export async function feedbackAgent(
       finalAnswer: "命令执行反馈生成失败，请查看 verbose 日志中的执行结果。",
     };
   }
-}
-
-/**
- * 未知任务处理节点。
- *
- * 当 routerAgent 无法可靠判断任务类型时，不进入任何可能产生副作用的流程，而是
- * 要求用户补充更明确的目标。
- */
-export async function unknownAgent(
-  state: AgentState,
-  runtime: AgentRuntime,
-): Promise<Partial<AgentState>> {
-  const nodeName = "unknownAgent";
-  runtime.logger.nodeStart(nodeName, truncateText(state.input));
-
-  const finalAnswer = buildUnknownTaskMessage(state.route?.reason);
-
-  runtime.logger.nodeSuccess(nodeName, "已生成澄清提示");
-  return { finalAnswer };
 }

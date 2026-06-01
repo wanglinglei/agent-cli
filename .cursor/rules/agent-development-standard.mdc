@@ -14,8 +14,9 @@ alwaysApply: true
 
 - CLI 只有一个自然语言入口：`src/cli.ts`。
 - 所有任务先进入 `routerAgent`，由 LangGraph 条件分支选择后续 Agent 流程。
-- 新增能力优先扩展 `RouteType`、`routerAgent` 提示词和 `src/graph/index.ts`，不要新增独立 CLI 入口。
-- Agent 节点只负责业务流程：准备上下文、调用 prompt builder、调用模型或工具、更新 `AgentState`。
+- 新增能力优先注册 `src/graph/agentRegistry.ts` 中的 flow definition，不要新增独立 CLI 入口。
+- `routerAgent` 的 route 候选和提示词说明必须由 flow registry 驱动，不要在 router 中手写业务 route 列表。
+- Agent 节点只负责业务流程：准备上下文、调用本 flow 的 prompt builder、调用模型或工具、通过本 flow 的 `PluginDataStore` 子类更新 `pluginData`。
 - 提示词、工具、状态类型、产物写入必须分层维护，不能混在 Agent 业务逻辑里。
 
 ## 2. 文件规范
@@ -41,11 +42,15 @@ alwaysApply: true
 
 ## 3. 目录职责
 
-- `src/agents/`：Agent 节点实现，只写流程逻辑。
-- `src/prompts/`：所有 LLM 提示词模板和 prompt builder。
+- `src/agents/<flow>/`：单个业务 flow 的 Agent 节点、提示词、私有状态和 flow 注册定义。
+- `src/agents/router/agents.ts`、`src/agents/unknown/agents.ts`：核心路由和兜底节点。
+- `src/prompts/`：router、JSON 修复等公共 LLM 提示词模板和 prompt builder。
 - `src/tools/`：外部工具、本地命令、风险检查、搜索等可复用能力。
-- `src/graph/`：LangGraph 状态定义、节点注册、边和条件分支。
-- `src/types.ts`：共享类型、状态结构、路由枚举和产物结构。
+- `src/graph/`：LangGraph 状态定义、flow registry、公共 `PluginDataStore` 基类、节点注册、边和条件分支。
+- `src/graph/agentRegistry.ts`：内部 Agent flow 注册表，集中维护 route、路由说明、节点、边和条件分支。
+- `src/graph/pluginData.ts`：业务流程私有状态存储基类；具体 flow 必须在自己的目录中继承。
+- `src/graph/flowTypes.ts`：flow definition、节点和边的共享类型。
+- `src/types.ts`：共享类型、公共状态结构和产物结构。
 - `src/artifacts.ts`：最终产物写入和路径展示。
 - `src/memory/`：运行状态和长期记忆扩展接口。
 
@@ -60,15 +65,16 @@ alwaysApply: true
 
 新增一种能力时，按以下顺序改动：
 
-1. 在 `src/types.ts` 扩展 `RouteType` 和相关状态字段。
-2. 在 `src/prompts/routerPrompts.ts` 增加路由说明。
-3. 在 `src/prompts/*Prompts.ts` 新增对应 prompt builder。
-4. 在 `src/agents/` 新增或扩展 Agent 节点。
-5. 如需外部能力，在 `src/tools/` 新增工具封装。
-6. 在 `src/graph/index.ts` 注册节点、边和条件分支。
-7. 如最终需要生成内容产物，通过 `writeAgentArtifact` 写入 `output/<finalAgent>/`。
-8. 更新 README 或本规范中的架构说明。
-9. 运行 `pnpm type-check`。
+1. 新建 `src/agents/<flow>/` 目录。
+2. 在 `src/agents/<flow>/prompts.ts` 新增对应 prompt builder。
+3. 在 `src/agents/<flow>/agents.ts` 新增或扩展 Agent 节点。
+4. 如需外部能力，在 `src/tools/` 新增工具封装。
+5. 在 `src/agents/<flow>/pluginData.ts` 定义 route、私有状态类型，并继承 `PluginDataStore<T>` 导出 flow 专属 store。
+6. 在 `src/agents/<flow>/flow.ts` 注册 flow definition，包括 route、description、nodes、startNode、edges 和必要的 conditionalEdges。
+7. 在 `src/graph/agentRegistry.ts` 聚合导入该 flow definition。
+8. 如最终需要生成内容产物，通过 `writeAgentArtifact` 写入 `output/<finalAgent>/`。
+9. 更新 README 或本规范中的架构说明。
+10. 运行 `pnpm type-check`。
 
 ## 5. Agent 节点标准
 
@@ -92,15 +98,15 @@ export async function xxxAgent(
 - 失败时调用 `runtime.logger.nodeError(nodeName, error)`，并返回 `errors` 更新。
 - 节点返回值只包含本节点修改的状态字段。
 - 如果失败后不应继续执行，设置 `finalAnswer`，由 graph 的 `continueOrEnd` 提前结束。
+- 业务流程中间态必须通过本 flow 的 `PluginDataStore` 子类读写，不要直接散落 `unknown` 类型断言。
 
 ## 6. 提示词标准
 
-提示词必须集中维护在 `src/prompts/`：
+提示词按职责维护：
 
 - 路由提示词：`routerPrompts.ts`
-- 资料型提示词：`researchPrompts.ts`
-- 命令型提示词：`commandPrompts.ts`
 - JSON 修复提示词：`jsonRepairPrompts.ts`
+- 业务 flow 提示词：`src/agents/<flow>/prompts.ts`
 
 prompt builder 命名规则：
 
@@ -119,17 +125,20 @@ export function buildXxxPrompt(...): string {
 
 ## 7. 状态设计标准
 
-所有跨节点数据必须定义在 `AgentState` 中，并同步更新 `AgentStateAnnotation`。
+`AgentState` 顶层只保存跨流程公共数据，例如输入、工作目录、运行参数、路由结果、最终回答、产物、错误、事件，以及后续任务规划或多 Agent 协作需要共享的公共上下文。
+
+业务流程私有中间态必须放入 `pluginData[route]`，并通过本 flow 的 `PluginDataStore` 子类读写。
 
 新增状态字段要求：
 
-- 字段名语义清晰，避免缩写。
-- 可选中间结果使用 `xxx?: Type`。
-- 数组字段必须在 `createInitialState` 中初始化。
-- 不要把大文件内容、二进制内容或无界日志放进状态。
+- 只有任务规划、多 Agent 协作、全局审计等跨流程公共数据，才允许新增 `AgentState` 顶层字段，并同步更新 `AgentStateAnnotation`。
+- 单个业务 flow 的搜索结果、摘要、命令计划、风险结果、执行结果等中间态不得新增为顶层字段。
+- `pluginData` key 必须使用该 flow 的 route。
+- `PluginDataStore` 子类应不可变更新 `pluginData`，节点返回 `{ pluginData: nextPluginData }`。
+- 不要把大文件内容、二进制内容或无界日志放进 `AgentState` 或 `pluginData`。
 - 后续需要长期记忆的数据，应设计成可序列化结构。
 
-如果新增结构体，必须在 `src/types.ts` 定义 interface/type，并加中文 JSDoc。
+如果新增公共结构体，必须在 `src/types.ts` 定义 interface/type，并加中文 JSDoc；如果新增业务私有结构体，优先在 `src/agents/<flow>/pluginData.ts` 定义。
 
 ## 8. 产物标准
 
@@ -188,7 +197,9 @@ pnpm type-check
 - 所有新增 `src/**/*.ts` 文件有文件头注释。
 - 所有业务函数有中文 JSDoc。
 - Agent 文件没有内联大段提示词。
-- 新状态已同步 `AgentState` 和 `AgentStateAnnotation`。
+- 新业务流程已在 `src/agents/<flow>/flow.ts` 注册 flow definition，并在 `src/graph/agentRegistry.ts` 聚合。
+- 业务私有状态已通过本 flow 的 `PluginDataStore` 子类读写。
+- 新增 `AgentState` 顶层字段时，确认它是跨流程公共数据，并同步 `AgentStateAnnotation`。
 - 需要最终产物时只保存最终产物。
 - 命令型流程没有绕过风险检查。
 - README 或规范文档已更新必要说明。
@@ -202,10 +213,11 @@ pnpm type-check
  * @Author: wanglinglei
  * @Date: 2026-05-27 19:16:50
  * @Description: 实现 xxx Agent 节点。
- * @FilePath: /agents-cli/src/agents/xxxAgents.ts
+ * @FilePath: /agents-cli/src/agents/xxx/agents.ts
  * @LastEditTime: 2026-05-27 19:16:50
  */
-import type { AgentRuntime, AgentState } from "../types.js";
+import type { AgentRuntime, AgentState } from "../../types.js";
+import { xxxPluginData } from "./pluginData.js";
 
 /**
  * xxx Agent。
@@ -221,7 +233,11 @@ export async function xxxAgent(
 
   try {
     runtime.logger.nodeSuccess(nodeName, "完成 xxx");
-    return {};
+    return {
+      pluginData: xxxPluginData.update(state, {
+        // 写入本 flow 的私有状态。
+      }),
+    };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {

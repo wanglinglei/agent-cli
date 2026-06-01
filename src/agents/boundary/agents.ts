@@ -2,25 +2,26 @@
  * @Author: wanglinglei
  * @Date: 2026-05-27 20:05:00
  * @Description: 实现行政边界查询、SVG 生成和产物输出 Agent 节点。
- * @FilePath: /agents-cli/src/agents/boundaryAgents.ts
+ * @FilePath: /agents-cli/src/agents/boundary/agents.ts
  * @LastEditTime: 2026-05-27 20:10:00
  */
 import { z } from "zod";
 
-import { appendArtifact, formatArtifactPath, writeAgentArtifact } from "../artifacts.js";
-import { invokeJson } from "../json.js";
-import { buildBoundaryIntentPrompt } from "../prompts/boundaryPrompts.js";
-import { fetchBoundaryDataByCityCode } from "../tools/boundaryFetch.js";
-import { searchCityCode } from "../tools/boundaryCityCode.js";
-import { buildBoundarySvg, normalizeBoundaryStylePatch } from "../tools/boundarySvg.js";
-import { truncateText } from "../text.js";
+import { appendArtifact, formatArtifactPath, writeAgentArtifact } from "../../artifacts.js";
+import { invokeJson } from "../../json.js";
+import { boundaryPluginData } from "./pluginData.js";
+import { buildBoundaryIntentPrompt } from "./prompts.js";
+import { fetchBoundaryDataByCityCode } from "../../tools/boundaryFetch.js";
+import { searchCityCode } from "../../tools/boundaryCityCode.js";
+import { buildBoundarySvg, normalizeBoundaryStylePatch } from "../../tools/boundarySvg.js";
+import { truncateText } from "../../text.js";
 import type {
   AgentRuntime,
   AgentState,
   BoundaryCityResolution,
   BoundaryIntent,
   BoundarySvgStyle,
-} from "../types.js";
+} from "../../types.js";
 
 const boundaryIntentSchema = z.object({
   action: z.enum(["generate_boundary", "update_svg_style"]),
@@ -107,7 +108,7 @@ export async function boundaryIntentAgent(
     ) {
       runtime.logger.nodeSuccess(nodeName, "缺少会话上下文，终止样式更新");
       return {
-        boundaryIntent,
+        pluginData: boundaryPluginData.update(state, { boundaryIntent }),
         finalAnswer:
           "当前 CLI 不维护跨运行 SVG 会话。请在同一条命令里明确提供城市名称或 cityCode，再指定样式。",
       };
@@ -119,7 +120,7 @@ export async function boundaryIntentAgent(
     );
     runtime.logger.debug("边界意图", boundaryIntent);
 
-    return { boundaryIntent };
+    return { pluginData: boundaryPluginData.update(state, { boundaryIntent }) };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
@@ -140,24 +141,29 @@ export async function boundaryResolveAgent(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "boundaryResolveAgent";
+  const boundaryData = boundaryPluginData.read(state);
   runtime.logger.nodeStart(
     nodeName,
-    truncateText(state.boundaryIntent?.cityName ?? state.boundaryIntent?.cityCode ?? state.input),
+    truncateText(
+      boundaryData.boundaryIntent?.cityName ??
+        boundaryData.boundaryIntent?.cityCode ??
+        state.input,
+    ),
   );
 
   try {
-    if (!state.boundaryIntent) {
+    if (!boundaryData.boundaryIntent) {
       throw new Error("缺少边界意图，无法解析城市编码。");
     }
 
-    const boundaryResolution: BoundaryCityResolution = state.boundaryIntent.cityCode
+    const boundaryResolution: BoundaryCityResolution = boundaryData.boundaryIntent.cityCode
       ? {
-          cityCode: state.boundaryIntent.cityCode,
-          cityName: state.boundaryIntent.cityName,
+          cityCode: boundaryData.boundaryIntent.cityCode,
+          cityName: boundaryData.boundaryIntent.cityName,
           source: "explicit_input",
         }
-      : state.boundaryIntent.cityName
-        ? await searchCityCode(runtime.config, state.boundaryIntent.cityName)
+      : boundaryData.boundaryIntent.cityName
+        ? await searchCityCode(runtime.config, boundaryData.boundaryIntent.cityName)
         : (() => {
             throw new Error("未识别到城市名称或 cityCode，请明确指定查询目标。");
           })();
@@ -168,7 +174,7 @@ export async function boundaryResolveAgent(
     );
     runtime.logger.debug("城市编码解析结果", boundaryResolution);
 
-    return { boundaryResolution };
+    return { pluginData: boundaryPluginData.update(state, { boundaryResolution }) };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
@@ -189,19 +195,22 @@ export async function boundaryOutputAgent(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "boundaryOutputAgent";
+  const pluginData = boundaryPluginData.read(state);
   runtime.logger.nodeStart(nodeName, "下载边界并写入最终产物");
 
   try {
-    if (!state.boundaryIntent || !state.boundaryResolution) {
+    if (!pluginData.boundaryIntent || !pluginData.boundaryResolution) {
       throw new Error("缺少边界意图或城市编码结果，无法生成产物。");
     }
 
-    const boundaryData = await fetchBoundaryDataByCityCode(state.boundaryResolution.cityCode);
+    const boundaryData = await fetchBoundaryDataByCityCode(
+      pluginData.boundaryResolution.cityCode,
+    );
 
-    if (state.boundaryIntent.needSvg) {
+    if (pluginData.boundaryIntent.needSvg) {
       const svgResult = buildBoundarySvg({
         boundaryData,
-        style: state.boundaryIntent.stylePatch,
+        style: pluginData.boundaryIntent.stylePatch,
       });
 
       const svgArtifact = await writeAgentArtifact(state, runtime, {
@@ -220,8 +229,8 @@ export async function boundaryOutputAgent(
       runtime.logger.nodeSuccess(
         nodeName,
         summarizeSvgResult(
-          state.boundaryResolution.cityName,
-          state.boundaryResolution.cityCode,
+          pluginData.boundaryResolution.cityName,
+          pluginData.boundaryResolution.cityCode,
           svgResult.style,
         ),
       );
@@ -245,7 +254,7 @@ export async function boundaryOutputAgent(
 
     runtime.logger.nodeSuccess(
       nodeName,
-      `${state.boundaryResolution.cityName ?? "未知城市"} / ${state.boundaryResolution.cityCode}`,
+      `${pluginData.boundaryResolution.cityName ?? "未知城市"} / ${pluginData.boundaryResolution.cityCode}`,
     );
 
     return {

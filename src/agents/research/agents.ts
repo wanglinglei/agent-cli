@@ -2,22 +2,27 @@
  * @Author: wanglinglei
  * @Date: 2026-05-27 19:16:50
  * @Description: 实现资料搜索、总结、写作和 Markdown 格式化 Agent 节点。
- * @FilePath: /agents-cli/src/agents/researchAgents.ts
- * @LastEditTime: 2026-05-27 19:16:50
+ * @FilePath: /agents-cli/src/agents/research/agents.ts
+ * @LastEditTime: 2026-06-01 17:33:08
  */
 import { z } from "zod";
 
-import { appendArtifact, formatArtifactPath, writeAgentArtifact } from "../artifacts.js";
-import { invokeJson, invokeText } from "../json.js";
+import {
+  appendArtifact,
+  formatArtifactPath,
+  writeAgentArtifact,
+} from "../../artifacts.js";
+import { invokeJson, invokeText } from "../../json.js";
 import {
   buildFormatPrompt,
   buildSearchQueryPrompt,
   buildSummaryPrompt,
   buildWritingPrompt,
-} from "../prompts/researchPrompts.js";
-import { searchWithTavily } from "../tools/tavilySearch.js";
-import { toPrettyJson, truncateText } from "../text.js";
-import type { AgentRuntime, AgentState, SearchResult } from "../types.js";
+} from "./prompts.js";
+import { researchPluginData } from "./pluginData.js";
+import { searchWithTavily } from "../../tools/tavilySearch.js";
+import { toPrettyJson, truncateText } from "../../text.js";
+import type { AgentRuntime, AgentState, SearchResult } from "../../types.js";
 
 const searchQuerySchema = z.object({
   queries: z.array(z.string().min(2)).min(1).max(5),
@@ -61,7 +66,10 @@ export async function searchAgent(
       searchQuerySchema,
     );
 
-    const searchResults = await searchWithTavily(runtime.config, queryOutput.queries);
+    const searchResults = await searchWithTavily(
+      runtime.config,
+      queryOutput.queries,
+    );
 
     runtime.logger.nodeSuccess(
       nodeName,
@@ -71,13 +79,18 @@ export async function searchAgent(
     runtime.logger.debug("搜索结果", searchResults);
 
     return {
-      searchQueries: queryOutput.queries,
-      searchResults,
+      pluginData: researchPluginData.update(state, {
+        searchQueries: queryOutput.queries,
+        searchResults,
+      }),
     };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
-      errors: [...state.errors, error instanceof Error ? error.message : String(error)],
+      errors: [
+        ...state.errors,
+        error instanceof Error ? error.message : String(error),
+      ],
       finalAnswer: "搜索 Agent 执行失败，无法继续生成资料型内容。",
     };
   }
@@ -94,22 +107,32 @@ export async function summaryAgent(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "summaryAgent";
-  runtime.logger.nodeStart(nodeName, `搜索结果 ${state.searchResults.length} 条`);
+  const researchData = researchPluginData.read(state);
+  runtime.logger.nodeStart(
+    nodeName,
+    `搜索结果 ${researchData.searchResults.length} 条`,
+  );
 
   try {
     const summary = await invokeText(
       runtime.llm,
-      buildSummaryPrompt(state.input, formatSearchResultsForPrompt(state.searchResults)),
+      buildSummaryPrompt(
+        state.input,
+        formatSearchResultsForPrompt(researchData.searchResults),
+      ),
     );
 
     runtime.logger.nodeSuccess(nodeName, truncateText(summary));
     runtime.logger.debug("资料摘要", summary);
 
-    return { summary };
+    return { pluginData: researchPluginData.update(state, { summary }) };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
-      errors: [...state.errors, error instanceof Error ? error.message : String(error)],
+      errors: [
+        ...state.errors,
+        error instanceof Error ? error.message : String(error),
+      ],
       finalAnswer: "总结 Agent 执行失败，无法继续写作。",
     };
   }
@@ -126,22 +149,26 @@ export async function writingAgent(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "writingAgent";
-  runtime.logger.nodeStart(nodeName, truncateText(state.summary ?? ""));
+  const researchData = researchPluginData.read(state);
+  runtime.logger.nodeStart(nodeName, truncateText(researchData.summary ?? ""));
 
   try {
     const draft = await invokeText(
       runtime.llm,
-      buildWritingPrompt(state.input, state.summary),
+      buildWritingPrompt(state.input, researchData.summary),
     );
 
     runtime.logger.nodeSuccess(nodeName, truncateText(draft));
     runtime.logger.debug("写作初稿", draft);
 
-    return { draft };
+    return { pluginData: researchPluginData.update(state, { draft }) };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
-      errors: [...state.errors, error instanceof Error ? error.message : String(error)],
+      errors: [
+        ...state.errors,
+        error instanceof Error ? error.message : String(error),
+      ],
       finalAnswer: "写作 Agent 执行失败，无法生成初稿。",
     };
   }
@@ -158,17 +185,18 @@ export async function formatAgent(
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "formatAgent";
-  runtime.logger.nodeStart(nodeName, truncateText(state.draft ?? ""));
+  const researchData = researchPluginData.read(state);
+  runtime.logger.nodeStart(nodeName, truncateText(researchData.draft ?? ""));
 
   try {
-    const sources = state.searchResults
+    const sources = researchData.searchResults
       .filter((item) => item.url)
       .slice(0, 10)
       .map((item) => ({ title: item.title, url: item.url }));
 
     const finalMarkdown = await invokeText(
       runtime.llm,
-      buildFormatPrompt(state.input, state.draft, toPrettyJson(sources)),
+      buildFormatPrompt(state.input, researchData.draft, toPrettyJson(sources)),
     );
 
     runtime.logger.nodeSuccess(nodeName, "已生成最终 Markdown");
@@ -182,7 +210,7 @@ export async function formatAgent(
     });
 
     return {
-      finalMarkdown,
+      pluginData: researchPluginData.update(state, { finalMarkdown }),
       finalAnswer: `最终 Markdown 已写入：${formatArtifactPath(
         state.cwd,
         artifact.filePath,
@@ -192,7 +220,10 @@ export async function formatAgent(
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);
     return {
-      errors: [...state.errors, error instanceof Error ? error.message : String(error)],
+      errors: [
+        ...state.errors,
+        error instanceof Error ? error.message : String(error),
+      ],
       finalAnswer: "格式化 Agent 执行失败，无法生成 Markdown。",
     };
   }

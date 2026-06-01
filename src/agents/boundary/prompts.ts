@@ -2,7 +2,7 @@
  * @Author: wanglinglei
  * @Date: 2026-05-27 20:05:00
  * @Description: 维护行政边界 SVG 流程的提示词模板。
- * @FilePath: /agents-cli/src/prompts/boundaryPrompts.ts
+ * @FilePath: /agents-cli/src/agents/boundary/prompts.ts
  * @LastEditTime: 2026-05-27 20:05:00
  */
 

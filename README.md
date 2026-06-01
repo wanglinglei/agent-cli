@@ -31,18 +31,33 @@ agents-cli/
     ├── text.ts
     ├── types.ts
     ├── graph/
-    │   └── index.ts
+    │   ├── agentRegistry.ts
+    │   ├── flowTypes.ts
+    │   ├── index.ts
+    │   └── pluginData.ts
     ├── prompts/
-    │   ├── boundaryPrompts.ts
-    │   ├── commandPrompts.ts
     │   ├── jsonRepairPrompts.ts
-    │   ├── researchPrompts.ts
     │   └── routerPrompts.ts
     ├── agents/
-    │   ├── boundaryAgents.ts
-    │   ├── commandAgents.ts
-    │   ├── researchAgents.ts
-    │   └── routerAgent.ts
+    │   ├── boundary/
+    │   │   ├── agents.ts
+    │   │   ├── flow.ts
+    │   │   ├── pluginData.ts
+    │   │   └── prompts.ts
+    │   ├── command/
+    │   │   ├── agents.ts
+    │   │   ├── flow.ts
+    │   │   ├── pluginData.ts
+    │   │   └── prompts.ts
+    │   ├── research/
+    │   │   ├── agents.ts
+    │   │   ├── flow.ts
+    │   │   ├── pluginData.ts
+    │   │   └── prompts.ts
+    │   ├── router/
+    │   │   └── agents.ts
+    │   └── unknown/
+    │       └── agents.ts
     ├── tools/
     │   ├── boundaryCityCode.ts
     │   ├── boundaryFetch.ts
@@ -55,7 +70,8 @@ agents-cli/
         └── MemoryStore.ts
 ```
 
-提示词统一维护在 `src/prompts/`，Agent 业务逻辑只负责准备上下文、调用模型和更新状态。
+业务 flow 采用目录内聚结构：`src/agents/<flow>/` 下同时维护 Agent 节点、提示词、私有状态和 flow 注册定义。`src/prompts/` 只保留 router、JSON 修复等公共提示词。
+业务流程通过 `src/graph/agentRegistry.ts` 聚合 flow definition；`AgentState` 顶层只保存公共数据，资料、边界、命令等流程私有中间态统一存入 `pluginData`，并由各 flow 的 `PluginDataStore` 子类读写。
 
 最终产物目录示例：
 
@@ -222,6 +238,8 @@ agents --yes "帮我查看当前仓库最近三次提交并解释"
 ```bash
 pnpm type-check
 ```
+
+新增 Agent 流程时，默认创建 `src/agents/<flow>/`，在目录内维护 `agents.ts`、`prompts.ts`、`pluginData.ts` 和 `flow.ts`；再在 `src/graph/agentRegistry.ts` 聚合该 flow definition。业务中间态默认放入 `pluginData[route]`，并通过继承 `PluginDataStore<T>` 的 flow 专属 store 读写；只有任务规划、多 Agent 协作、全局审计等跨流程公共数据才放入 `AgentState` 顶层。
 
 Agent 扩展开发规范见 [.cursor/rules/agent-development-standard.mdc](.cursor/rules/agent-development-standard.mdc)，Cursor 会按项目规则默认读取。
 

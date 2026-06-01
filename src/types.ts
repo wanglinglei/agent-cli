@@ -12,16 +12,9 @@ import type { Logger } from "./logger.js";
 /**
  * 顶层任务路由类型。
  *
- * - research_write：需要联网搜索、总结、写作和 Markdown 格式化。
- * - local_command：需要把自然语言转换为 Shell/Git/脚本命令。
- * - boundary_svg：需要解析行政区划边界并输出 SVG 或 GeoJSON 文件。
- * - unknown：任务目标不明确，系统不会继续执行危险动作。
+ * 具体业务 route 由 Agent flow registry 注册；unknown 是路由失败或低置信度兜底。
  */
-export type RouteType =
-  | "research_write"
-  | "local_command"
-  | "boundary_svg"
-  | "unknown";
+export type RouteType = string;
 
 /**
  * 命令风险等级。
@@ -200,7 +193,8 @@ export interface AgentArtifact {
 /**
  * LangGraph 共享状态。
  *
- * 所有 Agent 通过读写该状态传递信息，便于后续接入 checkpointer 或长期记忆。
+ * 顶层只保存跨流程公共数据；业务流程私有中间态统一存入 pluginData，
+ * 便于新增 Agent 时不再扩展全局状态结构。
  */
 export interface AgentState {
   input: string;
@@ -209,18 +203,7 @@ export interface AgentState {
   autoApprove: boolean;
   runId: string;
   route?: RouteDecision;
-  searchQueries: string[];
-  searchResults: SearchResult[];
-  summary?: string;
-  draft?: string;
-  finalMarkdown?: string;
-  commandIntent?: CommandIntent;
-  commandPlan?: CommandPlan;
-  boundaryIntent?: BoundaryIntent;
-  boundaryResolution?: BoundaryCityResolution;
-  risk?: RiskAssessment;
-  userApproved?: boolean;
-  executionResult?: ExecutionResult;
+  pluginData: Record<string, unknown>;
   finalAnswer?: string;
   artifacts: AgentArtifact[];
   errors: string[];

@@ -2,7 +2,7 @@
  * @Author: wanglinglei
  * @Date: 2026-05-27 19:16:50
  * @Description: 维护资料搜索、总结、写作和格式化相关提示词。
- * @FilePath: /agents-cli/src/prompts/researchPrompts.ts
+ * @FilePath: /agents-cli/src/agents/research/prompts.ts
  * @LastEditTime: 2026-05-27 19:16:50
  */
 /**
