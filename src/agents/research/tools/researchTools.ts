@@ -3,13 +3,14 @@
  * @Date: 2026-06-04 00:00:00
  * @Description: 提供资料写作流程使用的 LangChain 标准工具。
  * @FilePath: /agents-cli/src/agents/research/tools/researchTools.ts
- * @LastEditTime: 2026-06-04 00:00:00
+ * @LastEditTime: 2026-06-04 16:17:30
  */
 import { tool } from "langchain";
 import { z } from "zod";
 
 import { formatArtifactPath, writeAgentArtifact } from "../../../artifacts.js";
 import { toPrettyJson, truncateText } from "../../../text.js";
+import { createCurrentTimeTool } from "../../../tools/currentTime.js";
 import { searchWithTavily } from "../../../tools/tavilySearch.js";
 import type { AgentArtifact, AgentRuntime, AgentState } from "../../../types.js";
 
@@ -86,5 +87,5 @@ export function createResearchTools(context: ResearchToolContext) {
     },
   );
 
-  return [tavilySearchTool, writeMarkdownArtifactTool];
+  return [createCurrentTimeTool(), tavilySearchTool, writeMarkdownArtifactTool];
 }

@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 定义多 Agent CLI 的共享类型和状态结构。
  * @FilePath: /agents-cli/src/types.ts
- * @LastEditTime: 2026-05-28 10:50:05
+ * @LastEditTime: 2026-06-04 16:17:30
  */
 import type { ChatOpenAI } from "@langchain/openai";
 
@@ -68,6 +68,30 @@ export interface SearchResult {
   content: string;
   rawContent?: string;
   score?: number;
+}
+
+/**
+ * 当前时间工具入参。
+ *
+ * timeZone 使用 IANA 时区名；未传入时由运行机器的系统时区决定。
+ */
+export interface CurrentTimeInput {
+  timeZone?: string;
+}
+
+/**
+ * 当前时间工具返回结果。
+ *
+ * 同时提供 UTC、Unix 时间戳和目标时区格式化时间，方便 Agent 在相对日期、
+ * 今天、当前时间等任务中使用准确运行时信息。
+ */
+export interface CurrentTimeResult {
+  isoUtc: string;
+  epochMs: number;
+  unixSeconds: number;
+  timeZone: string;
+  utcOffset: string;
+  localizedTime: string;
 }
 
 /**

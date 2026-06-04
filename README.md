@@ -69,6 +69,7 @@ agents-cli/
     │   └── unknown/
     │       └── agents.ts
     ├── tools/
+    │   ├── currentTime.ts
     │   ├── riskChecker.ts
     │   ├── shellExecutor.ts
     │   └── tavilySearch.ts
@@ -77,7 +78,7 @@ agents-cli/
         └── MemoryStore.ts
 ```
 
-业务 flow 采用目录内聚结构：`src/agents/<flow>/` 下同时维护 Agent 节点、提示词、私有状态、flow 注册定义和业务专属 `tools/`。`src/tools/` 只保留跨业务复用的公共基础能力，例如统一搜索封装、本地命令执行和风险检查；`src/prompts/` 只保留 router、JSON 修复等公共提示词。
+业务 flow 采用目录内聚结构：`src/agents/<flow>/` 下同时维护 Agent 节点、提示词、私有状态、flow 注册定义和业务专属 `tools/`。`src/tools/` 只保留跨业务复用的公共基础能力，例如当前时间读取、统一搜索封装、本地命令执行和风险检查；`src/prompts/` 只保留 router、JSON 修复等公共提示词。
 业务流程通过 `src/graph/agentRegistry.ts` 聚合 flow definition；路由后进入对应 ReAct 节点，由 `src/graph/reactToolRunner.ts` 使用 LangChain v1 的 `createAgent` 创建工具调用子图。`AgentState` 顶层只保存公共数据，资料、边界、命令等流程私有中间态统一存入 `pluginData`，并由各 flow 的 `PluginDataStore` 子类读写。
 
 命令执行工具会在执行前强制重新运行风险检查：`blocked` 命令不执行，`high` 风险命令必须确认或使用 `--yes`，`medium` 和 `low` 通过检查后执行。`--yes` 只跳过确认，不跳过风险检查。
