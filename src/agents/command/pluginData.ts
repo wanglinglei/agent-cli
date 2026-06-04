@@ -10,6 +10,7 @@ import type {
   CommandIntent,
   CommandPlan,
   ExecutionResult,
+  ReactToolEvent,
   RiskAssessment,
 } from "../../types.js";
 
@@ -24,6 +25,8 @@ export interface CommandPluginData {
   risk?: RiskAssessment;
   userApproved?: boolean;
   executionResult?: ExecutionResult;
+  toolEvents: ReactToolEvent[];
+  finalContent?: string;
 }
 
 /**
@@ -33,5 +36,6 @@ export interface CommandPluginData {
  */
 class CommandPluginDataStore extends PluginDataStore<CommandPluginData> {}
 
-export const commandPluginData = new CommandPluginDataStore(COMMAND_ROUTE, {});
-
+export const commandPluginData = new CommandPluginDataStore(COMMAND_ROUTE, {
+  toolEvents: [],
+});

@@ -6,7 +6,7 @@
  * @LastEditTime: 2026-06-01 00:00:00
  */
 import { PluginDataStore } from "../../graph/pluginData.js";
-import type { SearchResult } from "../../types.js";
+import type { ReactToolEvent, SearchResult } from "../../types.js";
 
 export const RESEARCH_ROUTE = "research_write";
 
@@ -19,6 +19,8 @@ export interface ResearchPluginData {
   summary?: string;
   draft?: string;
   finalMarkdown?: string;
+  toolEvents: ReactToolEvent[];
+  finalContent?: string;
 }
 
 /**
@@ -31,5 +33,5 @@ class ResearchPluginDataStore extends PluginDataStore<ResearchPluginData> {}
 export const researchPluginData = new ResearchPluginDataStore(RESEARCH_ROUTE, {
   searchQueries: [],
   searchResults: [],
+  toolEvents: [],
 });
-

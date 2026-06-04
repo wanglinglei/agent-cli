@@ -16,7 +16,8 @@ alwaysApply: true
 - 所有任务先进入 `routerAgent`，由 LangGraph 条件分支选择后续 Agent 流程。
 - 新增能力优先注册 `src/graph/agentRegistry.ts` 中的 flow definition，不要新增独立 CLI 入口。
 - `routerAgent` 的 route 候选和提示词说明必须由 flow registry 驱动，不要在 router 中手写业务 route 列表。
-- Agent 节点只负责业务流程：准备上下文、调用本 flow 的 prompt builder、调用模型或工具、通过本 flow 的 `PluginDataStore` 子类更新 `pluginData`。
+- 业务 flow 默认采用 ReAct 工具调用架构：Agent 节点准备上下文、调用本 flow 的 prompt builder、通过 `src/graph/reactToolRunner.ts` 执行 LangChain v1 `createAgent`，并通过本 flow 的 `PluginDataStore` 子类更新 `pluginData`。
+- 不使用已弃用的 `@langchain/langgraph/prebuilt.createReactAgent`；标准 Agent harness 使用 `langchain` 包导出的 `createAgent`。
 - 提示词、工具、状态类型、产物写入必须分层维护，不能混在 Agent 业务逻辑里。
 
 ## 2. 文件规范
@@ -46,10 +47,11 @@ alwaysApply: true
 - `src/agents/router/agents.ts`、`src/agents/unknown/agents.ts`：核心路由和兜底节点。
 - `src/prompts/`：router、JSON 修复等公共 LLM 提示词模板和 prompt builder。
 - `src/tools/`：外部工具、本地命令、风险检查、搜索等可复用能力。
-- `src/graph/`：LangGraph 状态定义、flow registry、公共 `PluginDataStore` 基类、节点注册、边和条件分支。
+- `src/graph/`：LangGraph 状态定义、flow registry、公共 `PluginDataStore` 基类、节点注册、边和条件分支，以及 ReAct 工具调用 runner。
 - `src/graph/agentRegistry.ts`：内部 Agent flow 注册表，集中维护 route、路由说明、节点、边和条件分支。
 - `src/graph/pluginData.ts`：业务流程私有状态存储基类；具体 flow 必须在自己的目录中继承。
 - `src/graph/flowTypes.ts`：flow definition、节点和边的共享类型。
+- `src/graph/reactToolRunner.ts`：封装 LangChain v1 `createAgent` 调用、最终消息解析和工具调用摘要提取。
 - `src/types.ts`：共享类型、公共状态结构和产物结构。
 - `src/artifacts.ts`：最终产物写入和路径展示。
 - `src/memory/`：运行状态和长期记忆扩展接口。
@@ -67,8 +69,8 @@ alwaysApply: true
 
 1. 新建 `src/agents/<flow>/` 目录。
 2. 在 `src/agents/<flow>/prompts.ts` 新增对应 prompt builder。
-3. 在 `src/agents/<flow>/agents.ts` 新增或扩展 Agent 节点。
-4. 如需外部能力，在 `src/tools/` 新增工具封装。
+3. 如需外部能力，在 `src/tools/` 新增 LangChain 标准工具封装，工具必须使用 `langchain` 导出的 `tool(...)` 创建。
+4. 在 `src/agents/<flow>/agents.ts` 新增或扩展 ReAct Agent 节点，节点通过 `runReactToolAgent(...)` 调用本 flow 的工具集合。
 5. 在 `src/agents/<flow>/pluginData.ts` 定义 route、私有状态类型，并继承 `PluginDataStore<T>` 导出 flow 专属 store。
 6. 在 `src/agents/<flow>/flow.ts` 注册 flow definition，包括 route、description、nodes、startNode、edges 和必要的 conditionalEdges。
 7. 在 `src/graph/agentRegistry.ts` 聚合导入该 flow definition。
@@ -99,6 +101,8 @@ export async function xxxAgent(
 - 节点返回值只包含本节点修改的状态字段。
 - 如果失败后不应继续执行，设置 `finalAnswer`，由 graph 的 `continueOrEnd` 提前结束。
 - 业务流程中间态必须通过本 flow 的 `PluginDataStore` 子类读写，不要直接散落 `unknown` 类型断言。
+- ReAct 节点应调用 `runReactToolAgent(...)`，不要在节点内手写 `createAgent`、`bindTools`、`ToolNode` 或模型工具循环。
+- ReAct 节点只保存工具调用摘要、最终回答和产物记录；不要把完整消息历史、完整网页内容或完整命令日志写入 `pluginData`。
 
 ## 6. 提示词标准
 
@@ -119,7 +123,7 @@ export function buildXxxPrompt(...): string {
 要求：
 
 - Agent 文件只能调用 `buildXxxPrompt(...)`，不能内联大段模板字符串。
-- 结构化输出必须明确要求 JSON，并配合 zod schema 校验。
+- 结构化输出必须明确要求 JSON，并配合 zod schema 校验；ReAct flow 的系统提示词必须明确说明可用工具、工具调用顺序约束和最终回答要求。
 - prompt builder 只接收必要上下文，不接收完整 `AgentState`，避免和业务状态强耦合。
 - prompt 文件不得导入 LLM、工具、logger 或 artifacts。
 
@@ -146,7 +150,8 @@ export function buildXxxPrompt(...): string {
 
 规则：
 
-- 资料型最终产物写入 `output/formatAgent/<runId>-final.md`。
+- 资料型最终产物写入 `output/researchReactAgent/<runId>-final.md`。
+- 行政边界产物写入 `output/boundaryReactAgent/`。
 - 命令型任务默认不写反馈产物，成功、取消、拦截或失败原因直接输出到终端。
 - 新增最终 Agent 时使用 `writeAgentArtifact(state, runtime, ...)`。
 - 写入成功后用 `appendArtifact(state, artifact)` 更新状态。
@@ -160,27 +165,34 @@ export function buildXxxPrompt(...): string {
 
 工具封装放在 `src/tools/`，职责边界必须清晰：
 
+- 面向 ReAct Agent 暴露的工具必须是 LangChain 标准工具，使用 `import { tool } from "langchain"` 创建，并提供稳定的 `name`、`description` 和 zod `schema`。
 - 网络搜索统一封装，不让 Agent 直接依赖第三方返回结构。
 - 本地命令执行必须经过风险检查；确认策略由风险等级决定。
 - `blocked` 命令必须由代码规则拦截，不靠 prompt 约束代替代码约束。
 - 工具函数不直接修改 `AgentState`，只返回结构化结果。
+- 工具可以通过闭包上下文收集最终产物记录，但状态更新必须由 Agent 节点统一返回。
+- 大体积数据不得直接返回给模型；例如完整 GeoJSON、大段网页正文和完整命令日志应在工具内截断、缓存或摘要化。
 - 涉及文件写入时优先写到受控目录，避免覆盖用户文件。
 
 命令型 Agent 必须遵守：
 
+- 命令执行工具内部必须重新运行 `checkCommandRisk`，不能信任模型、prompt 或先前风险评估工具的输出。
+- 命令型 ReAct flow 需要补充用户信息时，必须通过工具读取终端输入；不要把追问作为最终回答直接结束。
 - `blocked` 风险命令禁止执行。
 - `high` 风险命令必须人工确认后执行。
 - `medium` 和 `low` 风险命令通过风险检查后直接执行。
 - `--yes` 只跳过确认，不跳过风险检查。
 - 任意命令失败后停止后续命令。
 - stdout/stderr 捕获必须有长度限制。
+- 同一轮 ReAct 运行中允许重复执行只读检查，但禁止重复执行有副作用命令计划，避免模型循环造成重复副作用。
+- 同一轮 ReAct 运行中的用户追问次数必须有限制，避免模型无限等待或反复追问。
 
 ## 10. 日志标准
 
 所有任务节点执行时必须使用 `Logger`：
 
 - 普通运行：展示节点开始、完成、失败、最终结果和必要的产物路径。
-- `--verbose`：展示路由结果、搜索结果、命令计划、风险结果、执行结果等中间状态。
+- `--verbose`：展示路由结果、ReAct 工具调用摘要、搜索结果摘要、命令计划摘要、风险结果和执行结果摘要等中间状态。
 - 禁止在业务节点中直接使用 `console.log` 输出流程日志。
 - 允许 CLI 层输出最终汇总标题和产物清单。
 
@@ -198,10 +210,12 @@ pnpm type-check
 - 所有业务函数有中文 JSDoc。
 - Agent 文件没有内联大段提示词。
 - 新业务流程已在 `src/agents/<flow>/flow.ts` 注册 flow definition，并在 `src/graph/agentRegistry.ts` 聚合。
+- ReAct flow 已通过 `runReactToolAgent(...)` 调用 LangChain v1 `createAgent`，没有使用已弃用的 `createReactAgent`。
+- 面向 ReAct 的工具使用 `langchain` 的 `tool(...)` 创建，并声明 zod schema。
 - 业务私有状态已通过本 flow 的 `PluginDataStore` 子类读写。
 - 新增 `AgentState` 顶层字段时，确认它是跨流程公共数据，并同步 `AgentStateAnnotation`。
 - 需要最终产物时只保存最终产物。
-- 命令型流程没有绕过风险检查。
+- 命令型流程没有绕过风险检查，执行工具内部会重新检查风险并限制重复执行。
 - README 或规范文档已更新必要说明。
 
 ## 12. 推荐模板
@@ -217,26 +231,43 @@ pnpm type-check
  * @LastEditTime: 2026-05-27 19:16:50
  */
 import type { AgentRuntime, AgentState } from "../../types.js";
+import { runReactToolAgent } from "../../graph/reactToolRunner.js";
+import { createXxxTools } from "../../tools/xxxTools.js";
+import { truncateText } from "../../text.js";
+import { buildXxxReactPrompt } from "./prompts.js";
 import { xxxPluginData } from "./pluginData.js";
 
 /**
  * xxx Agent。
  *
- * 说明该节点读取哪些状态、生成哪些状态，以及失败后是否终止流程。
+ * 输入用户任务，调用 LangChain 标准工具完成本 flow 的 ReAct 工具调用流程，并把
+ * 工具调用摘要和最终回答写入本 flow 私有状态。
  */
 export async function xxxAgent(
   state: AgentState,
   runtime: AgentRuntime,
 ): Promise<Partial<AgentState>> {
   const nodeName = "xxxAgent";
-  runtime.logger.nodeStart(nodeName, state.input);
+  runtime.logger.nodeStart(nodeName, truncateText(state.input));
 
   try {
-    runtime.logger.nodeSuccess(nodeName, "完成 xxx");
+    const result = await runReactToolAgent({
+      nodeName,
+      prompt: buildXxxReactPrompt(state.input),
+      state,
+      runtime,
+      tools: createXxxTools({ state, runtime }),
+    });
+
+    runtime.logger.nodeSuccess(nodeName, truncateText(result.finalAnswer));
+    runtime.logger.debug("ReAct 工具调用摘要", result.toolEvents);
+
     return {
       pluginData: xxxPluginData.update(state, {
-        // 写入本 flow 的私有状态。
+        toolEvents: result.toolEvents,
+        finalContent: result.finalAnswer,
       }),
+      finalAnswer: result.finalAnswer,
     };
   } catch (error) {
     runtime.logger.nodeError(nodeName, error);

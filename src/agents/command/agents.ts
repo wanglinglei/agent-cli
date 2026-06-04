@@ -13,10 +13,13 @@ import { z } from "zod";
 import { invokeJson } from "../../json.js";
 import { commandPluginData } from "./pluginData.js";
 import {
+  buildCommandReactPrompt,
   buildCommandIntentPrompt,
   buildCommandPlanPrompt,
 } from "./prompts.js";
+import { runReactToolAgent } from "../../graph/reactToolRunner.js";
 import { toPrettyJson, truncateText } from "../../text.js";
+import { createCommandTools } from "../../tools/commandTools.js";
 import { checkCommandRisk } from "../../tools/riskChecker.js";
 import { executeCommandPlan } from "../../tools/shellExecutor.js";
 import type {
@@ -50,6 +53,47 @@ const commandPlanSchema = z.object({
   requiresScript: z.boolean(),
   notes: z.array(z.string()),
 });
+
+/**
+ * 本地命令 ReAct Agent。
+ *
+ * 输入用户命令型任务，调用 LangChain 标准风险评估和执行工具完成规划与执行；命令
+ * 执行工具内部会重新做风险检查和必要确认，失败时返回最终说明。
+ */
+export async function commandReactAgent(
+  state: AgentState,
+  runtime: AgentRuntime,
+): Promise<Partial<AgentState>> {
+  const nodeName = "commandReactAgent";
+  runtime.logger.nodeStart(nodeName, truncateText(state.input));
+
+  try {
+    const result = await runReactToolAgent({
+      nodeName,
+      prompt: buildCommandReactPrompt(state.input, state.cwd),
+      state,
+      runtime,
+      tools: createCommandTools({ state, runtime }),
+    });
+
+    runtime.logger.nodeSuccess(nodeName, truncateText(result.finalAnswer));
+    runtime.logger.debug("ReAct 工具调用摘要", result.toolEvents);
+
+    return {
+      pluginData: commandPluginData.update(state, {
+        toolEvents: result.toolEvents,
+        finalContent: result.finalAnswer,
+      }),
+      finalAnswer: result.finalAnswer,
+    };
+  } catch (error) {
+    runtime.logger.nodeError(nodeName, error);
+    return {
+      errors: [...state.errors, error instanceof Error ? error.message : String(error)],
+      finalAnswer: "命令 ReAct Agent 执行失败，未执行或未完成本地命令任务。",
+    };
+  }
+}
 
 /**
  * 提取命令输出中最有价值的一小段错误上下文。

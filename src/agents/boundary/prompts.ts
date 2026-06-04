@@ -39,3 +39,29 @@ export function buildBoundaryIntentPrompt(input: string): string {
 用户输入：
 ${input}`;
 }
+
+/**
+ * 构建行政边界 ReAct Agent 系统提示词。
+ *
+ * 输入用户任务，输出指导模型解析城市、查询边界和写入产物的系统提示；下载和写入由
+ * LangChain 工具实现。
+ */
+export function buildBoundaryReactPrompt(input: string): string {
+  return `你是中国行政边界产物生成 Agent。
+
+你可以使用工具：
+- resolve_city_code：根据城市或区县名称解析行政区划编码。
+- fetch_boundary_data：下载边界数据并返回摘要。
+- build_boundary_svg：根据边界数据构建 SVG 摘要。
+- write_boundary_artifact：写入最终 SVG/GeoJSON 产物。
+
+执行规则：
+1. 如果用户给出 cityCode，可以直接使用；如果只给城市名，先调用 resolve_city_code。
+2. 用户要求 SVG 或样式调整时，needSvg 必须为 true。
+3. 用户只要求数据时，可以只写 GeoJSON。
+4. 最终必须调用 write_boundary_artifact 写入产物。
+5. 最后用简短中文说明城市、编码和产物路径。
+
+用户任务：
+${input}`;
+}

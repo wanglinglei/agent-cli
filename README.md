@@ -5,11 +5,11 @@ Node + LangGraph + LangChain + TypeScript 多 Agent 自动化任务执行器。
 所有能力共享一个命令行入口：`agents`。
 用户只输入自然语言任务，不选择 Agent 名称；系统会先做意图分析，再自动决定调用哪条 Agent 流程。
 
-用户只需要在命令行输入自然语言任务，系统会由 `routerAgent` 自动判断要调用哪组 Agent：
+用户只需要在命令行输入自然语言任务，系统会由 `routerAgent` 自动判断要调用哪组 ReAct 工具调用流程：
 
-- 资料型任务：搜索 Agent -> 总结 Agent -> 写作 Agent -> 格式化 Agent
-- 行政边界任务：边界意图解析 Agent -> 城市编码解析 Agent -> 边界下载/产物输出 Agent
-- 本地命令任务：意图解析 Agent -> 命令生成 Agent -> 风险检查 Agent -> Shell 执行或高风险确认 -> 反馈 Agent
+- 资料型任务：`researchReactAgent` 自主调用搜索和 Markdown 产物工具。
+- 行政边界任务：`boundaryReactAgent` 自主调用城市编码、边界下载、SVG 和产物工具。
+- 本地命令任务：`commandReactAgent` 自主调用风险评估和命令执行工具。
 
 终端展示运行状态、最终结果和必要的产物路径。搜索结果、摘要、初稿、命令计划等过程产物不会写文件；只有明确需要文件产物的任务才写入 `output/<最终Agent>/`。
 
@@ -34,7 +34,8 @@ agents-cli/
     │   ├── agentRegistry.ts
     │   ├── flowTypes.ts
     │   ├── index.ts
-    │   └── pluginData.ts
+    │   ├── pluginData.ts
+    │   └── reactToolRunner.ts
     ├── prompts/
     │   ├── jsonRepairPrompts.ts
     │   └── routerPrompts.ts
@@ -59,9 +60,12 @@ agents-cli/
     │   └── unknown/
     │       └── agents.ts
     ├── tools/
+    │   ├── boundaryTools.ts
     │   ├── boundaryCityCode.ts
     │   ├── boundaryFetch.ts
     │   ├── boundarySvg.ts
+    │   ├── commandTools.ts
+    │   ├── researchTools.ts
     │   ├── riskChecker.ts
     │   ├── shellExecutor.ts
     │   └── tavilySearch.ts
@@ -71,16 +75,18 @@ agents-cli/
 ```
 
 业务 flow 采用目录内聚结构：`src/agents/<flow>/` 下同时维护 Agent 节点、提示词、私有状态和 flow 注册定义。`src/prompts/` 只保留 router、JSON 修复等公共提示词。
-业务流程通过 `src/graph/agentRegistry.ts` 聚合 flow definition；`AgentState` 顶层只保存公共数据，资料、边界、命令等流程私有中间态统一存入 `pluginData`，并由各 flow 的 `PluginDataStore` 子类读写。
+业务流程通过 `src/graph/agentRegistry.ts` 聚合 flow definition；路由后进入对应 ReAct 节点，由 `src/graph/reactToolRunner.ts` 使用 LangChain v1 的 `createAgent` 创建工具调用子图。`AgentState` 顶层只保存公共数据，资料、边界、命令等流程私有中间态统一存入 `pluginData`，并由各 flow 的 `PluginDataStore` 子类读写。
+
+命令执行工具会在执行前强制重新运行风险检查：`blocked` 命令不执行，`high` 风险命令必须确认或使用 `--yes`，`medium` 和 `low` 通过检查后执行。`--yes` 只跳过确认，不跳过风险检查。
 
 最终产物目录示例：
 
 ```text
 output/
-├── boundaryOutputAgent/
+├── boundaryReactAgent/
 │   ├── <runId>-boundary-geojson.geojson
 │   └── <runId>-boundary-svg.svg
-└── formatAgent/
+└── researchReactAgent/
     └── <runId>-final.md
 ```
 

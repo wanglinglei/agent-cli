@@ -6,7 +6,11 @@
  * @LastEditTime: 2026-06-01 00:00:00
  */
 import { PluginDataStore } from "../../graph/pluginData.js";
-import type { BoundaryCityResolution, BoundaryIntent } from "../../types.js";
+import type {
+  BoundaryCityResolution,
+  BoundaryIntent,
+  ReactToolEvent,
+} from "../../types.js";
 
 export const BOUNDARY_ROUTE = "boundary_svg";
 
@@ -16,6 +20,8 @@ export const BOUNDARY_ROUTE = "boundary_svg";
 export interface BoundaryPluginData {
   boundaryIntent?: BoundaryIntent;
   boundaryResolution?: BoundaryCityResolution;
+  toolEvents: ReactToolEvent[];
+  finalContent?: string;
 }
 
 /**
@@ -25,5 +31,6 @@ export interface BoundaryPluginData {
  */
 class BoundaryPluginDataStore extends PluginDataStore<BoundaryPluginData> {}
 
-export const boundaryPluginData = new BoundaryPluginDataStore(BOUNDARY_ROUTE, {});
-
+export const boundaryPluginData = new BoundaryPluginDataStore(BOUNDARY_ROUTE, {
+  toolEvents: [],
+});

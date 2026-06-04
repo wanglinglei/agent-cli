@@ -191,6 +191,16 @@ export interface AgentArtifact {
 }
 
 /**
+ * ReAct 工具调用事件摘要。
+ *
+ * 只保存工具名和截断后的结果摘要，避免把完整工具输出或长日志塞入图状态。
+ */
+export interface ReactToolEvent {
+  toolName: string;
+  summary: string;
+}
+
+/**
  * LangGraph 共享状态。
  *
  * 顶层只保存跨流程公共数据；业务流程私有中间态统一存入 pluginData，
