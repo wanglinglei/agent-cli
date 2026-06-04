@@ -2,11 +2,11 @@
  * @Author: wanglinglei
  * @Date: 2026-05-27 20:05:00
  * @Description: 解析行政区划名称并通过 Tavily 搜索城市编码。
- * @FilePath: /agents-cli/src/tools/boundaryCityCode.ts
+ * @FilePath: /agents-cli/src/agents/boundary/tools/boundaryCityCode.ts
  * @LastEditTime: 2026-05-27 20:05:00
  */
-import { requireTavilyApiKey } from "../config.js";
-import type { AppConfig, BoundaryCityResolution } from "../types.js";
+import { requireTavilyApiKey } from "../../../config.js";
+import type { AppConfig, BoundaryCityResolution } from "../../../types.js";
 
 const POSTAL_CODE_KEYWORDS = /(邮编|邮政编码|postcode|zip\s*code)/i;
 const ADMIN_CODE_KEYWORDS =

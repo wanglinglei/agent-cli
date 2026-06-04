@@ -2,16 +2,16 @@
  * @Author: wanglinglei
  * @Date: 2026-06-04 00:00:00
  * @Description: 提供资料写作流程使用的 LangChain 标准工具。
- * @FilePath: /agents-cli/src/tools/researchTools.ts
+ * @FilePath: /agents-cli/src/agents/research/tools/researchTools.ts
  * @LastEditTime: 2026-06-04 00:00:00
  */
 import { tool } from "langchain";
 import { z } from "zod";
 
-import { formatArtifactPath, writeAgentArtifact } from "../artifacts.js";
-import { toPrettyJson, truncateText } from "../text.js";
-import { searchWithTavily } from "./tavilySearch.js";
-import type { AgentArtifact, AgentRuntime, AgentState } from "../types.js";
+import { formatArtifactPath, writeAgentArtifact } from "../../../artifacts.js";
+import { toPrettyJson, truncateText } from "../../../text.js";
+import { searchWithTavily } from "../../../tools/tavilySearch.js";
+import type { AgentArtifact, AgentRuntime, AgentState } from "../../../types.js";
 
 /**
  * 资料工具创建上下文。

@@ -2,10 +2,10 @@
  * @Author: wanglinglei
  * @Date: 2026-05-27 20:05:00
  * @Description: 将行政边界 GeoJSON 转换为可下载的 SVG 文本。
- * @FilePath: /agents-cli/src/tools/boundarySvg.ts
+ * @FilePath: /agents-cli/src/agents/boundary/tools/boundarySvg.ts
  * @LastEditTime: 2026-05-27 20:05:00
  */
-import type { BoundarySvgStyle } from "../types.js";
+import type { BoundarySvgStyle } from "../../../types.js";
 
 const SVG_CANVAS_SIZE = 1024;
 const SVG_PADDING = 16;

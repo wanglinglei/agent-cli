@@ -43,10 +43,11 @@ alwaysApply: true
 
 ## 3. 目录职责
 
-- `src/agents/<flow>/`：单个业务 flow 的 Agent 节点、提示词、私有状态和 flow 注册定义。
+- `src/agents/<flow>/`：单个业务 flow 的 Agent 节点、提示词、私有状态、flow 注册定义和强业务依赖工具。
+- `src/agents/<flow>/tools/`：仅当前业务 flow 使用的 ReAct 工具集合和业务专属工具实现。
 - `src/agents/router/agents.ts`、`src/agents/unknown/agents.ts`：核心路由和兜底节点。
 - `src/prompts/`：router、JSON 修复等公共 LLM 提示词模板和 prompt builder。
-- `src/tools/`：外部工具、本地命令、风险检查、搜索等可复用能力。
+- `src/tools/`：跨业务 flow 可复用的公共基础工具，例如统一搜索封装、本地命令执行和风险检查。
 - `src/graph/`：LangGraph 状态定义、flow registry、公共 `PluginDataStore` 基类、节点注册、边和条件分支，以及 ReAct 工具调用 runner。
 - `src/graph/agentRegistry.ts`：内部 Agent flow 注册表，集中维护 route、路由说明、节点、边和条件分支。
 - `src/graph/pluginData.ts`：业务流程私有状态存储基类；具体 flow 必须在自己的目录中继承。
@@ -69,7 +70,7 @@ alwaysApply: true
 
 1. 新建 `src/agents/<flow>/` 目录。
 2. 在 `src/agents/<flow>/prompts.ts` 新增对应 prompt builder。
-3. 如需外部能力，在 `src/tools/` 新增 LangChain 标准工具封装，工具必须使用 `langchain` 导出的 `tool(...)` 创建。
+3. 如需当前 flow 专用能力，在 `src/agents/<flow>/tools/` 新增工具封装；只有跨业务可复用的基础能力才放入 `src/tools/`。
 4. 在 `src/agents/<flow>/agents.ts` 新增或扩展 ReAct Agent 节点，节点通过 `runReactToolAgent(...)` 调用本 flow 的工具集合。
 5. 在 `src/agents/<flow>/pluginData.ts` 定义 route、私有状态类型，并继承 `PluginDataStore<T>` 导出 flow 专属 store。
 6. 在 `src/agents/<flow>/flow.ts` 注册 flow definition，包括 route、description、nodes、startNode、edges 和必要的 conditionalEdges。
@@ -163,9 +164,11 @@ export function buildXxxPrompt(...): string {
 
 ## 9. 工具和安全标准
 
-工具封装放在 `src/tools/`，职责边界必须清晰：
+工具封装按复用边界分层，职责边界必须清晰：
 
 - 面向 ReAct Agent 暴露的工具必须是 LangChain 标准工具，使用 `import { tool } from "langchain"` 创建，并提供稳定的 `name`、`description` 和 zod `schema`。
+- 单个业务 flow 强依赖的工具放在 `src/agents/<flow>/tools/`，不要放入公共 `src/tools/`。
+- `src/tools/` 只保留跨业务 flow 复用的基础能力，不放业务专属 ReAct 工具集合。
 - 网络搜索统一封装，不让 Agent 直接依赖第三方返回结构。
 - 本地命令执行必须经过风险检查；确认策略由风险等级决定。
 - `blocked` 命令必须由代码规则拦截，不靠 prompt 约束代替代码约束。
@@ -232,7 +235,7 @@ pnpm type-check
  */
 import type { AgentRuntime, AgentState } from "../../types.js";
 import { runReactToolAgent } from "../../graph/reactToolRunner.js";
-import { createXxxTools } from "../../tools/xxxTools.js";
+import { createXxxTools } from "./tools/xxxTools.js";
 import { truncateText } from "../../text.js";
 import { buildXxxReactPrompt } from "./prompts.js";
 import { xxxPluginData } from "./pluginData.js";

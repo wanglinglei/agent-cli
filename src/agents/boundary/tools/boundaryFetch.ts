@@ -2,7 +2,7 @@
  * @Author: wanglinglei
  * @Date: 2026-05-27 20:05:00
  * @Description: 根据行政区划编码下载边界 GeoJSON 数据。
- * @FilePath: /agents-cli/src/tools/boundaryFetch.ts
+ * @FilePath: /agents-cli/src/agents/boundary/tools/boundaryFetch.ts
  * @LastEditTime: 2026-05-27 20:05:00
  */
 

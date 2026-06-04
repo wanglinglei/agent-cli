@@ -2,14 +2,14 @@
  * @Author: wanglinglei
  * @Date: 2026-06-04 00:00:00
  * @Description: 提供行政边界流程使用的 LangChain 标准工具。
- * @FilePath: /agents-cli/src/tools/boundaryTools.ts
+ * @FilePath: /agents-cli/src/agents/boundary/tools/boundaryTools.ts
  * @LastEditTime: 2026-06-04 00:00:00
  */
 import { tool } from "langchain";
 import { z } from "zod";
 
-import { formatArtifactPath, writeAgentArtifact } from "../artifacts.js";
-import { toPrettyJson } from "../text.js";
+import { formatArtifactPath, writeAgentArtifact } from "../../../artifacts.js";
+import { toPrettyJson } from "../../../text.js";
 import {
   buildBoundarySvg,
   normalizeBoundaryStylePatch,
@@ -21,7 +21,7 @@ import type {
   AgentRuntime,
   AgentState,
   BoundarySvgStyle,
-} from "../types.js";
+} from "../../../types.js";
 
 /**
  * 边界工具创建上下文。

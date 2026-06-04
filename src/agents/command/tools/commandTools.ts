@@ -2,7 +2,7 @@
  * @Author: wanglinglei
  * @Date: 2026-06-04 00:00:00
  * @Description: 提供本地命令流程使用的 LangChain 标准工具。
- * @FilePath: /agents-cli/src/tools/commandTools.ts
+ * @FilePath: /agents-cli/src/agents/command/tools/commandTools.ts
  * @LastEditTime: 2026-06-04 00:00:00
  */
 import { stdin as input, stdout as output } from "node:process";
@@ -11,10 +11,10 @@ import { createInterface } from "node:readline/promises";
 import { tool } from "langchain";
 import { z } from "zod";
 
-import { toPrettyJson } from "../text.js";
-import { checkCommandRisk } from "./riskChecker.js";
-import { executeCommandPlan } from "./shellExecutor.js";
-import type { AgentRuntime, AgentState, CommandPlan } from "../types.js";
+import { toPrettyJson } from "../../../text.js";
+import { checkCommandRisk } from "../../../tools/riskChecker.js";
+import { executeCommandPlan } from "../../../tools/shellExecutor.js";
+import type { AgentRuntime, AgentState, CommandPlan } from "../../../types.js";
 
 /**
  * 命令工具创建上下文。

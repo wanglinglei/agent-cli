@@ -15,10 +15,10 @@ import {
   buildBoundaryReactPrompt,
 } from "./prompts.js";
 import { runReactToolAgent } from "../../graph/reactToolRunner.js";
-import { fetchBoundaryDataByCityCode } from "../../tools/boundaryFetch.js";
-import { searchCityCode } from "../../tools/boundaryCityCode.js";
-import { buildBoundarySvg, normalizeBoundaryStylePatch } from "../../tools/boundarySvg.js";
-import { createBoundaryTools } from "../../tools/boundaryTools.js";
+import { fetchBoundaryDataByCityCode } from "./tools/boundaryFetch.js";
+import { searchCityCode } from "./tools/boundaryCityCode.js";
+import { buildBoundarySvg, normalizeBoundaryStylePatch } from "./tools/boundarySvg.js";
+import { createBoundaryTools } from "./tools/boundaryTools.js";
 import { truncateText } from "../../text.js";
 import type {
   AgentArtifact,

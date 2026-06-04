@@ -19,7 +19,7 @@ import {
 } from "./prompts.js";
 import { runReactToolAgent } from "../../graph/reactToolRunner.js";
 import { toPrettyJson, truncateText } from "../../text.js";
-import { createCommandTools } from "../../tools/commandTools.js";
+import { createCommandTools } from "./tools/commandTools.js";
 import { checkCommandRisk } from "../../tools/riskChecker.js";
 import { executeCommandPlan } from "../../tools/shellExecutor.js";
 import type {

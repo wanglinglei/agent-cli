@@ -22,7 +22,7 @@ import {
 } from "./prompts.js";
 import { researchPluginData } from "./pluginData.js";
 import { runReactToolAgent } from "../../graph/reactToolRunner.js";
-import { createResearchTools } from "../../tools/researchTools.js";
+import { createResearchTools } from "./tools/researchTools.js";
 import { searchWithTavily } from "../../tools/tavilySearch.js";
 import { toPrettyJson, truncateText } from "../../text.js";
 import type {
