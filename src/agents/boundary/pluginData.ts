@@ -3,14 +3,10 @@
  * @Date: 2026-06-01 00:00:00
  * @Description: 维护行政边界 Agent flow 的私有状态存储。
  * @FilePath: /agents-cli/src/agents/boundary/pluginData.ts
- * @LastEditTime: 2026-06-01 00:00:00
+ * @LastEditTime: 2026-06-05 16:20:00
  */
 import { PluginDataStore } from "../../graph/pluginData.js";
-import type {
-  BoundaryCityResolution,
-  BoundaryIntent,
-  ReactToolEvent,
-} from "../../types.js";
+import type { ReactToolEvent } from "../../types.js";
 
 export const BOUNDARY_ROUTE = "boundary_svg";
 
@@ -18,8 +14,6 @@ export const BOUNDARY_ROUTE = "boundary_svg";
  * 行政边界流程的私有状态。
  */
 export interface BoundaryPluginData {
-  boundaryIntent?: BoundaryIntent;
-  boundaryResolution?: BoundaryCityResolution;
   toolEvents: ReactToolEvent[];
   finalContent?: string;
 }

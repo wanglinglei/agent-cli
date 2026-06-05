@@ -3,16 +3,10 @@
  * @Date: 2026-06-01 00:00:00
  * @Description: 维护本地命令 Agent flow 的私有状态存储。
  * @FilePath: /agents-cli/src/agents/command/pluginData.ts
- * @LastEditTime: 2026-06-04 16:42:10
+ * @LastEditTime: 2026-06-05 16:20:00
  */
 import { PluginDataStore } from "../../graph/pluginData.js";
-import type {
-  CommandIntent,
-  CommandPlan,
-  ExecutionResult,
-  ReactToolEvent,
-  RiskAssessment,
-} from "../../types.js";
+import type { ReactToolEvent } from "../../types.js";
 
 export const COMMAND_ROUTE = "local_command";
 
@@ -34,12 +28,7 @@ export interface OperationIntentDecision {
  * 本地命令流程的私有状态。
  */
 export interface CommandPluginData {
-  commandIntent?: CommandIntent;
   operationIntent?: OperationIntentDecision;
-  commandPlan?: CommandPlan;
-  risk?: RiskAssessment;
-  userApproved?: boolean;
-  executionResult?: ExecutionResult;
   toolEvents: ReactToolEvent[];
   finalContent?: string;
 }

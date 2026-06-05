@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 定义多 Agent CLI 的共享类型和状态结构。
  * @FilePath: /agents-cli/src/types.ts
- * @LastEditTime: 2026-06-04 16:17:30
+ * @LastEditTime: 2026-06-05 16:20:00
  */
 import type { ChatOpenAI } from "@langchain/openai";
 
@@ -23,11 +23,6 @@ export type RouteType = string;
  * medium 和 low 表示通过风险检查后可直接执行。
  */
 export type RiskLevel = "low" | "medium" | "high" | "blocked";
-
-/**
- * 本地命令任务类别，用于给命令生成 Agent 更明确的上下文。
- */
-export type CommandType = "shell" | "git" | "script" | "mixed";
 
 /**
  * CLI 运行配置。
@@ -95,17 +90,6 @@ export interface CurrentTimeResult {
 }
 
 /**
- * 命令意图解析结果。
- */
-export interface CommandIntent {
-  goal: string;
-  commandType: CommandType;
-  target: string;
-  cwd: string;
-  constraints: string[];
-}
-
-/**
  * 单条待执行命令。
  */
 export interface GeneratedCommand {
@@ -131,25 +115,6 @@ export interface BoundarySvgStyle {
   fillColor: string;
   strokeColor: string;
   strokeWidth: number;
-}
-
-/**
- * 边界任务动作类型。
- */
-export type BoundaryAction = "generate_boundary" | "update_svg_style";
-
-/**
- * 边界 SVG 意图解析结果。
- *
- * 该结构只保留单次 CLI 运行所需的最小字段，不维护服务端会话上下文。
- */
-export interface BoundaryIntent {
-  action: BoundaryAction;
-  cityCode?: string;
-  cityName?: string;
-  needSvg: boolean;
-  year: 2023;
-  stylePatch?: Partial<BoundarySvgStyle>;
 }
 
 /**

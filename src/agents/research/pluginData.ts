@@ -3,10 +3,10 @@
  * @Date: 2026-06-01 00:00:00
  * @Description: 维护资料写作 Agent flow 的私有状态存储。
  * @FilePath: /agents-cli/src/agents/research/pluginData.ts
- * @LastEditTime: 2026-06-01 00:00:00
+ * @LastEditTime: 2026-06-05 16:20:00
  */
 import { PluginDataStore } from "../../graph/pluginData.js";
-import type { ReactToolEvent, SearchResult } from "../../types.js";
+import type { ReactToolEvent } from "../../types.js";
 
 export const RESEARCH_ROUTE = "research_write";
 
@@ -14,11 +14,6 @@ export const RESEARCH_ROUTE = "research_write";
  * 资料写作流程的私有状态。
  */
 export interface ResearchPluginData {
-  searchQueries: string[];
-  searchResults: SearchResult[];
-  summary?: string;
-  draft?: string;
-  finalMarkdown?: string;
   toolEvents: ReactToolEvent[];
   finalContent?: string;
 }
@@ -31,7 +26,5 @@ export interface ResearchPluginData {
 class ResearchPluginDataStore extends PluginDataStore<ResearchPluginData> {}
 
 export const researchPluginData = new ResearchPluginDataStore(RESEARCH_ROUTE, {
-  searchQueries: [],
-  searchResults: [],
   toolEvents: [],
 });
