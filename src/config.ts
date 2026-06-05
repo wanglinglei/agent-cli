@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 读取并校验 CLI 运行所需的环境变量配置。
  * @FilePath: /agents-cli/src/config.ts
- * @LastEditTime: 2026-05-28 10:39:03
+ * @LastEditTime: 2026-06-05 17:05:00
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -39,6 +39,8 @@ loadEnvFiles();
 const configSchema = z.object({
   dashscopeApiKey: z.string().min(1, "缺少 DASHSCOPE_API_KEY"),
   tavilyApiKey: z.string().optional(),
+  weatherApiHost: z.string().url().optional(),
+  weatherApiToken: z.string().optional(),
   llmBaseUrl: z
     .string()
     .url()
@@ -60,6 +62,8 @@ export function loadConfig(): AppConfig {
   return configSchema.parse({
     dashscopeApiKey: process.env.DASHSCOPE_API_KEY,
     tavilyApiKey: process.env.TAVILY_API_KEY,
+    weatherApiHost: process.env.WEATHER_API_HOST,
+    weatherApiToken: process.env.WEATHER_API_TOKEN,
     llmBaseUrl:
       process.env.LLM_BASE_URL ??
       "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -76,4 +80,25 @@ export function requireTavilyApiKey(config: AppConfig): string {
   }
 
   return config.tavilyApiKey;
+}
+
+/**
+ * 在进入天气流程前校验和风天气配置。
+ */
+export function requireWeatherApiConfig(config: AppConfig): {
+  apiHost: string;
+  apiToken: string;
+} {
+  if (!config.weatherApiHost) {
+    throw new Error("缺少 WEATHER_API_HOST，天气查询任务需要配置和风天气 API Host。");
+  }
+
+  if (!config.weatherApiToken) {
+    throw new Error("缺少 WEATHER_API_TOKEN，天气查询任务需要配置和风天气 API Token。");
+  }
+
+  return {
+    apiHost: config.weatherApiHost,
+    apiToken: config.weatherApiToken,
+  };
 }

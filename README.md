@@ -7,6 +7,7 @@ Node + LangGraph + LangChain + TypeScript 多 Agent 自动化任务执行器。
 
 用户只需要在命令行输入自然语言任务，系统会由 `routerAgent` 自动判断要调用哪组 ReAct 工具调用流程：
 
+- 天气任务：`weatherReactAgent` 自主调用和风天气城市查询和天气查询工具。
 - 资料型任务：`researchReactAgent` 自主调用搜索和 Markdown 产物工具。
 - 行政边界任务：`boundaryReactAgent` 自主调用城市编码、边界下载、SVG 和产物工具。
 - 本地命令任务：`commandReactAgent` 自主调用风险评估和命令执行工具。
@@ -40,6 +41,14 @@ agents-cli/
     │   ├── jsonRepairPrompts.ts
     │   └── routerPrompts.ts
     ├── agents/
+    │   ├── weather/
+    │   │   ├── agents.ts
+    │   │   ├── flow.ts
+    │   │   ├── pluginData.ts
+    │   │   ├── prompts.ts
+    │   │   └── tools/
+    │   │       ├── qweatherClient.ts
+    │   │       └── weatherTools.ts
     │   ├── boundary/
     │   │   ├── agents.ts
     │   │   ├── flow.ts
@@ -138,9 +147,13 @@ cp .env.example .env
 ```bash
 DASHSCOPE_API_KEY=your_dashscope_api_key
 TAVILY_API_KEY=your_tavily_api_key
+WEATHER_API_HOST=https://your-qweather-api-host
+WEATHER_API_TOKEN=your_qweather_api_token
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen-plus
 ```
+
+`WEATHER_API_HOST` 使用和风天气控制台分配的 API Host；天气查询工具会同时用它访问 `/geo/v2/city/lookup` 和 `/v7/weather/...`。
 
 全局 `agents` 命令会优先读取当前工作目录的 `.env`，再读取 CLI 项目根目录的 `.env` 作为兜底。
 
@@ -182,6 +195,12 @@ agents "写一篇 LangGraph 多 Agent 学习笔记，包含资料来源并生成
 
 ```bash
 agents "写一篇 LangGraph 多 Agent 学习笔记，包含资料来源并生成 markdown"
+```
+
+天气任务：
+
+```bash
+agents "明天北京适合跑步吗？"
 ```
 
 行政边界 SVG 任务：

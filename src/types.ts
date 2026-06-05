@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 定义多 Agent CLI 的共享类型和状态结构。
  * @FilePath: /agents-cli/src/types.ts
- * @LastEditTime: 2026-06-05 16:20:00
+ * @LastEditTime: 2026-06-05 17:05:00
  */
 import type { ChatOpenAI } from "@langchain/openai";
 
@@ -40,6 +40,8 @@ export interface CliOptions {
 export interface AppConfig {
   dashscopeApiKey: string;
   tavilyApiKey?: string;
+  weatherApiHost?: string;
+  weatherApiToken?: string;
   llmBaseUrl: string;
   llmModel: string;
 }
