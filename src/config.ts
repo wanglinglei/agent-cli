@@ -3,14 +3,14 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 读取并校验 CLI 运行所需的环境变量配置。
  * @FilePath: /agents-cli/src/config.ts
- * @LastEditTime: 2026-06-05 17:05:00
+ * @LastEditTime: 2026-06-05 18:55:00
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { config as loadDotenv } from "dotenv";
 import { z } from "zod";
 
-import type { AppConfig } from "./types.js";
+import type { AppConfig, PexelsMcpConnectionConfig } from "./types.js";
 
 const currentFilePath = fileURLToPath(import.meta.url);
 const cliProjectEnvPath = path.resolve(
@@ -41,6 +41,11 @@ const configSchema = z.object({
   tavilyApiKey: z.string().optional(),
   weatherApiHost: z.string().url().optional(),
   weatherApiToken: z.string().optional(),
+  amapMcpUrl: z.string().url().optional(),
+  amapMapsApiKey: z.string().optional(),
+  pexelsMcpCommand: z.string().optional(),
+  pexelsMcpArgs: z.string().optional(),
+  pexelsApiKey: z.string().optional(),
   llmBaseUrl: z
     .string()
     .url()
@@ -64,6 +69,11 @@ export function loadConfig(): AppConfig {
     tavilyApiKey: process.env.TAVILY_API_KEY,
     weatherApiHost: process.env.WEATHER_API_HOST,
     weatherApiToken: process.env.WEATHER_API_TOKEN,
+    amapMcpUrl: process.env.AMAP_MCP_URL,
+    amapMapsApiKey: process.env.AMAP_MAPS_API_KEY,
+    pexelsMcpCommand: process.env.PEXELS_MCP_COMMAND,
+    pexelsMcpArgs: process.env.PEXELS_MCP_ARGS,
+    pexelsApiKey: process.env.PEXELS_API_KEY,
     llmBaseUrl:
       process.env.LLM_BASE_URL ??
       "https://dashscope.aliyuncs.com/compatible-mode/v1",
@@ -101,4 +111,70 @@ export function requireWeatherApiConfig(config: AppConfig): {
     apiHost: config.weatherApiHost,
     apiToken: config.weatherApiToken,
   };
+}
+
+/**
+ * 在进入高德地图 MCP 工具前解析连接地址。
+ */
+export function requireAmapMcpUrl(config: AppConfig): string {
+  if (config.amapMcpUrl) {
+    return config.amapMcpUrl;
+  }
+
+  if (config.amapMapsApiKey) {
+    const url = new URL("https://mcp.amap.com/mcp");
+    url.searchParams.set("key", config.amapMapsApiKey);
+    return url.toString();
+  }
+
+  throw new Error(
+    "缺少 AMAP_MCP_URL 或 AMAP_MAPS_API_KEY，旅行规划任务需要配置高德地图 MCP。",
+  );
+}
+
+/**
+ * 解析 Pexels stdio MCP 命令参数。
+ *
+ * 支持 JSON 字符串数组和简单空白分隔两种写法；JSON 解析失败时抛出明确错误，
+ * 避免把错误参数传给 MCP 子进程。
+ */
+function parsePexelsMcpArgs(args?: string): string[] {
+  const trimmedArgs = args?.trim();
+  if (!trimmedArgs) {
+    return [];
+  }
+
+  if (trimmedArgs.startsWith("[")) {
+    const parsedArgs = JSON.parse(trimmedArgs);
+    if (
+      Array.isArray(parsedArgs) &&
+      parsedArgs.every((item): item is string => typeof item === "string")
+    ) {
+      return parsedArgs;
+    }
+
+    throw new Error("PEXELS_MCP_ARGS 使用 JSON 数组时，数组项必须都是字符串。");
+  }
+
+  return trimmedArgs.split(/\s+/);
+}
+
+/**
+ * 在进入 Pexels MCP 工具前解析连接配置。
+ */
+export function requirePexelsMcpConfig(
+  config: AppConfig,
+): PexelsMcpConnectionConfig {
+  if (config.pexelsMcpCommand) {
+    return {
+      ...(config.pexelsApiKey ? { apiKey: config.pexelsApiKey } : {}),
+      args: parsePexelsMcpArgs(config.pexelsMcpArgs),
+      command: config.pexelsMcpCommand,
+      transport: "stdio",
+    };
+  }
+
+  throw new Error(
+    "缺少 PEXELS_MCP_COMMAND，景点配图需要配置本地 Pexels MCP 启动命令。",
+  );
 }

@@ -7,6 +7,7 @@ Node + LangGraph + LangChain + TypeScript 多 Agent 自动化任务执行器。
 
 用户只需要在命令行输入自然语言任务，系统会由 `routerAgent` 自动判断要调用哪组 ReAct 工具调用流程：
 
+- 旅行规划任务：`travelReactAgent` 自主调用当前时间、天气、高德 MCP、Pexels MCP 和 Markdown 产物工具。
 - 天气任务：`weatherReactAgent` 自主调用和风天气城市查询和天气查询工具。
 - 资料型任务：`researchReactAgent` 自主调用搜索和 Markdown 产物工具。
 - 行政边界任务：`boundaryReactAgent` 自主调用城市编码、边界下载、SVG 和产物工具。
@@ -41,6 +42,15 @@ agents-cli/
     │   ├── jsonRepairPrompts.ts
     │   └── routerPrompts.ts
     ├── agents/
+    │   ├── travel/
+    │   │   ├── agents.ts
+    │   │   ├── flow.ts
+    │   │   ├── pluginData.ts
+    │   │   ├── prompts.ts
+    │   │   └── tools/
+    │   │       ├── amapMcpClient.ts
+    │   │       ├── pexelsMcpClient.ts
+    │   │       └── travelTools.ts
     │   ├── weather/
     │   │   ├── agents.ts
     │   │   ├── flow.ts
@@ -149,11 +159,18 @@ DASHSCOPE_API_KEY=your_dashscope_api_key
 TAVILY_API_KEY=your_tavily_api_key
 WEATHER_API_HOST=https://your-qweather-api-host
 WEATHER_API_TOKEN=your_qweather_api_token
+AMAP_MCP_URL=https://mcp.amap.com/mcp?key=your_amap_key
+AMAP_MAPS_API_KEY=your_amap_maps_api_key
+PEXELS_MCP_COMMAND=your_pexels_mcp_command
+PEXELS_MCP_ARGS=["--your","args"]
+PEXELS_API_KEY=your_pexels_api_key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen-plus
 ```
 
 `WEATHER_API_HOST` 使用和风天气控制台分配的 API Host；天气查询工具会同时用它访问 `/geo/v2/city/lookup` 和 `/v7/weather/...`。
+旅行规划使用高德地图 MCP 查询景点、酒店、餐饮和距离；如果配置了 `AMAP_MCP_URL` 会优先使用它，否则用 `AMAP_MAPS_API_KEY` 组装官方 MCP 地址。
+旅行规划还会通过本地 stdio Pexels MCP 为最终景点配图，每个景点返回 1-3 张图片；配置 `PEXELS_MCP_COMMAND` 和可选的 `PEXELS_MCP_ARGS`，`PEXELS_API_KEY` 会注入到 MCP 子进程环境中。图片会下载到 `output/travelReactAgent/<runId>-travel-plan-assets/`，Markdown 使用本地绝对路径引用这些图片，避免预览器拒绝超长 data URI 或无法解析相对路径。景点候选以卡片块展示，景点信息和配图放在同一个卡片中，不再单独生成“景点配图”章节；同一景点的多张配图会以每行 3 张的 Markdown 表格展示。
 
 全局 `agents` 命令会优先读取当前工作目录的 `.env`，再读取 CLI 项目根目录的 `.env` 作为兜底。
 
@@ -195,6 +212,12 @@ agents "写一篇 LangGraph 多 Agent 学习笔记，包含资料来源并生成
 
 ```bash
 agents "写一篇 LangGraph 多 Agent 学习笔记，包含资料来源并生成 markdown"
+```
+
+旅行规划任务：
+
+```bash
+agents "帮我规划未来7天杭州旅行，考虑天气、景点和酒店"
 ```
 
 天气任务：

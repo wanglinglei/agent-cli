@@ -18,6 +18,7 @@ import type { AgentRuntime, AgentState, ReactToolEvent } from "../types.js";
 export interface ReactToolRunnerInput {
   nodeName: string;
   prompt: string;
+  recursionLimit?: number;
   state: AgentState;
   runtime: AgentRuntime;
   tools: StructuredToolInterface[];
@@ -133,7 +134,7 @@ export async function runReactToolAgent(
           { role: "user", content: input.state.input },
         ],
       },
-      { recursionLimit: 20 },
+      { recursionLimit: input.recursionLimit ?? 20 },
     );
     const messages = Array.isArray(result.messages) ? result.messages : [];
 
