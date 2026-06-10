@@ -3,7 +3,7 @@
  * @Date: 2026-06-04 00:00:00
  * @Description: 封装 LangGraph ReAct 工具调用子图执行逻辑。
  * @FilePath: /agents-cli/src/graph/reactToolRunner.ts
- * @LastEditTime: 2026-06-04 00:00:00
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 import { createAgent } from "langchain";
 import type { StructuredToolInterface } from "@langchain/core/tools";
@@ -30,6 +30,130 @@ export interface ReactToolRunnerInput {
 export interface ReactToolRunnerResult {
   finalAnswer: string;
   toolEvents: ReactToolEvent[];
+}
+
+type ToolInvoke = (input: unknown, config?: unknown, tags?: string[]) => Promise<unknown>;
+
+interface InstrumentedTool extends StructuredToolInterface {
+  __agentsCliInstrumented?: boolean;
+  call: ToolInvoke;
+  invoke: ToolInvoke;
+}
+
+/**
+ * 压缩日志值。
+ *
+ * 输入任意工具入参或结果，输出适合终端展示的短结构；失败策略是返回类型名，
+ * 避免日志序列化异常影响真实工具调用。
+ */
+function compactLogValue(value: unknown, depth = 0): unknown {
+  if (depth > 2) {
+    return "[嵌套已截断]";
+  }
+
+  if (typeof value === "string") {
+    return truncateText(value, 240);
+  }
+
+  if (Array.isArray(value)) {
+    return value.slice(0, 4).map((item) => compactLogValue(item, depth + 1));
+  }
+
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .slice(0, 12)
+      .map(([key, item]) => [key, compactLogValue(item, depth + 1)]),
+  );
+}
+
+/**
+ * 生成工具调用日志摘要。
+ *
+ * 输入任意值，输出一行短文本；对象会先压缩再序列化，长内容会被截断。
+ */
+function summarizeLogValue(value: unknown): string {
+  try {
+    if (typeof value === "string") {
+      return truncateText(value, 300);
+    }
+
+    return truncateText(JSON.stringify(compactLogValue(value)), 300);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
+/**
+ * 为 LangChain Tool 增加开始、结束和失败日志。
+ *
+ * 输入单个工具和当前 Agent 运行上下文，输出带日志包装的同一个工具实例；包装只改写
+ * invoke/call 入口，不改变 schema、name、description 或工具业务逻辑。
+ */
+function instrumentTool(
+  toolItem: StructuredToolInterface,
+  input: ReactToolRunnerInput,
+): StructuredToolInterface {
+  const instrumentedTool = toolItem as InstrumentedTool;
+  if (instrumentedTool.__agentsCliInstrumented) {
+    return toolItem;
+  }
+
+  const toolName = instrumentedTool.name || "unknown_tool";
+  const originalInvoke = instrumentedTool.invoke.bind(instrumentedTool);
+  const originalCall = instrumentedTool.call.bind(instrumentedTool);
+  let activeLogDepth = 0;
+
+  const runWithLog = async (
+    toolInput: unknown,
+    config?: unknown,
+    tags?: string[],
+    delegate: ToolInvoke = originalInvoke,
+  ): Promise<unknown> => {
+    if (activeLogDepth > 0) {
+      return delegate(toolInput, config, tags);
+    }
+
+    const startedAt = Date.now();
+    activeLogDepth += 1;
+    input.runtime.logger.chainStart(
+      "tool",
+      toolName,
+      `${input.nodeName} 输入: ${summarizeLogValue(toolInput)}`,
+    );
+
+    try {
+      const result = await delegate(toolInput, config, tags);
+      input.runtime.logger.chainSuccess(
+        "tool",
+        toolName,
+        Date.now() - startedAt,
+        `输出: ${summarizeLogValue(result)}`,
+      );
+      return result;
+    } catch (error) {
+      input.runtime.logger.chainError(
+        "tool",
+        toolName,
+        error,
+        Date.now() - startedAt,
+      );
+      throw error;
+    } finally {
+      activeLogDepth -= 1;
+    }
+  };
+
+  instrumentedTool.invoke = (toolInput, config) =>
+    runWithLog(toolInput, config, undefined, originalInvoke);
+  instrumentedTool.call = (toolInput, config, tags) =>
+    runWithLog(toolInput, config, tags, originalCall);
+  instrumentedTool.__agentsCliInstrumented = true;
+
+  return instrumentedTool;
 }
 
 /**
@@ -121,9 +245,12 @@ function extractToolEvents(messages: unknown[]): ReactToolEvent[] {
 export async function runReactToolAgent(
   input: ReactToolRunnerInput,
 ): Promise<ReactToolRunnerResult> {
+  const instrumentedTools = input.tools.map((toolItem) =>
+    instrumentTool(toolItem, input),
+  );
   const agent = createAgent({
     model: input.runtime.llm,
-    tools: input.tools,
+    tools: instrumentedTools,
     systemPrompt: input.prompt,
   });
 

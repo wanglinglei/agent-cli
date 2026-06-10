@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 构建 LangGraph 多 Agent 状态图和初始运行状态。
  * @FilePath: /agents-cli/src/graph/index.ts
- * @LastEditTime: 2026-05-28 10:50:05
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
@@ -14,6 +14,7 @@ import {
   isRegisteredRoute,
 } from "./agentRegistry.js";
 import { GRAPH_END } from "./flowTypes.js";
+import { truncateText } from "../text.js";
 import type { AgentNode } from "./flowTypes.js";
 import type { AgentRuntime, AgentState, CliOptions } from "../types.js";
 
@@ -39,9 +40,33 @@ type GraphState = typeof AgentStateAnnotation.State;
  * 业务 Agent 使用项目自己的 AgentRuntime；这里通过闭包把 LLM、配置和 logger 注入
  * 节点，避免每个节点直接依赖 LangGraph 的底层运行时结构。
  */
-function bindNode(node: AgentNode, runtime: AgentRuntime) {
+function bindNode(nodeName: string, node: AgentNode, runtime: AgentRuntime) {
   return async (state: GraphState): Promise<Partial<AgentState>> => {
-    return node(state as AgentState, runtime);
+    const startedAt = Date.now();
+    runtime.logger.chainStart(
+      "subAgent",
+      nodeName,
+      `输入: ${truncateText(state.input, 160)}`,
+    );
+
+    try {
+      const result = await node(state as AgentState, runtime);
+      runtime.logger.chainSuccess(
+        "subAgent",
+        nodeName,
+        Date.now() - startedAt,
+        result.finalAnswer ? `输出: ${truncateText(result.finalAnswer, 160)}` : undefined,
+      );
+      return result;
+    } catch (error) {
+      runtime.logger.chainError(
+        "subAgent",
+        nodeName,
+        error,
+        Date.now() - startedAt,
+      );
+      throw error;
+    }
   };
 }
 
@@ -72,12 +97,12 @@ function routeAfterRouter(state: GraphState): string {
 export function buildAgentGraph(runtime: AgentRuntime) {
   const graph = new StateGraph(AgentStateAnnotation) as any;
 
-  graph.addNode("routerAgent", bindNode(routerAgent, runtime));
-  graph.addNode("unknownAgent", bindNode(unknownAgent, runtime));
+  graph.addNode("routerAgent", bindNode("routerAgent", routerAgent, runtime));
+  graph.addNode("unknownAgent", bindNode("unknownAgent", unknownAgent, runtime));
 
   for (const flow of agentFlowRegistry) {
     for (const flowNode of flow.nodes) {
-      graph.addNode(flowNode.name, bindNode(flowNode.node, runtime));
+      graph.addNode(flowNode.name, bindNode(flowNode.name, flowNode.node, runtime));
     }
   }
 

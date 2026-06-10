@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 20:05:00
  * @Description: 将行政边界 GeoJSON 转换为可下载的 SVG 文本。
  * @FilePath: /agents-cli/src/agents/boundary/tools/boundarySvg.ts
- * @LastEditTime: 2026-05-27 20:05:00
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 import type { BoundarySvgStyle } from "../../../types.js";
 
@@ -183,6 +183,17 @@ function collectRings(boundaryData: Record<string, unknown>): Ring[] {
           }
         }
       }
+      return;
+    }
+
+    if (Array.isArray(node.features)) {
+      for (const feature of node.features) {
+        walk(feature);
+      }
+    }
+
+    if (isRecord(node.geometry)) {
+      walk(node.geometry);
     }
   };
 

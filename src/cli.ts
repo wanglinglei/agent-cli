@@ -4,7 +4,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 提供自然语言单入口 CLI 并启动多 Agent 执行流程。
  * @FilePath: /agents-cli/src/cli.ts
- * @LastEditTime: 2026-05-28 10:50:05
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 
 import chalk from "chalk";
@@ -15,7 +15,7 @@ import { stdin as input, stdout as output } from "node:process";
 import { ZodError } from "zod";
 
 import { formatArtifactPath } from "./artifacts.js";
-import { loadConfig } from "./config.js";
+import { isFullDebugInfoEnabled, loadConfig } from "./config.js";
 import { buildAgentGraph, createInitialState } from "./graph/index.js";
 import { createLogger } from "./logger.js";
 import { createChatModel } from "./llm.js";
@@ -82,7 +82,7 @@ async function main(): Promise<void> {
         taskParts: string[] | undefined,
         options: { verbose: boolean; yes: boolean },
       ) => {
-        const logger = createLogger(options.verbose);
+        const logger = createLogger(options.verbose, isFullDebugInfoEnabled());
         const normalizedArgs = taskParts ?? [];
         const taskInput = normalizeTaskInput(normalizedArgs);
         const finalInput = taskInput || (await promptForTaskInput(logger));

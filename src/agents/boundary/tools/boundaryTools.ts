@@ -3,7 +3,7 @@
  * @Date: 2026-06-04 00:00:00
  * @Description: 提供行政边界流程使用的 LangChain 标准工具。
  * @FilePath: /agents-cli/src/agents/boundary/tools/boundaryTools.ts
- * @LastEditTime: 2026-06-04 16:17:30
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 import { tool } from "langchain";
 import { z } from "zod";
@@ -15,6 +15,10 @@ import {
   buildBoundarySvg,
   normalizeBoundaryStylePatch,
 } from "./boundarySvg.js";
+import {
+  fetchBoundaryDataByBatchZip,
+  type BoundaryBatchFetchResult,
+} from "./boundaryBatchFetch.js";
 import { fetchBoundaryDataByCityCode } from "./boundaryFetch.js";
 import { searchCityCode } from "./boundaryCityCode.js";
 import type {
@@ -39,6 +43,11 @@ export interface BoundaryToolContext {
 interface BoundaryDataCacheItem {
   cityCode: string;
   boundaryData: Record<string, unknown>;
+  includesSubBoundaries: boolean;
+  source: "ruiduobao" | "ruiduobao_batch";
+  adminLevel?: BoundaryBatchFetchResult["adminLevel"];
+  selectedDirectory?: string;
+  selectedFileCount?: number;
 }
 
 const boundaryStylePatchSchema = z
@@ -73,6 +82,50 @@ function normalizeToolCityCode(cityCode: string): string {
 }
 
 /**
+ * 构建边界数据缓存 key。
+ *
+ * 输入城市编码和是否包含下级边界，输出隔离单区域与下级区域数据的缓存键。
+ */
+function buildBoundaryCacheKey(
+  cityCode: string,
+  includeSubBoundaries: boolean,
+): string {
+  return `${cityCode}:${includeSubBoundaries ? "sub" : "single"}`;
+}
+
+/**
+ * 将缓存的边界数据整理成可返回给模型的摘要。
+ *
+ * 输入缓存项，输出轻量 JSON 结构；不会返回完整 GeoJSON，避免上下文膨胀。
+ */
+function summarizeBoundaryData(item: BoundaryDataCacheItem) {
+  return {
+    adminLevel: item.adminLevel,
+    cityCode: item.cityCode,
+    featureCount: countFeatures(item.boundaryData),
+    includesSubBoundaries: item.includesSubBoundaries,
+    selectedDirectory: item.selectedDirectory,
+    selectedFileCount: item.selectedFileCount,
+    source: item.source,
+  };
+}
+
+/**
+ * 归一化产物命名使用的城市名。
+ *
+ * 输入工具入参或城市编码解析缓存中的城市名，输出可用作产物 label 的名称；缺失时
+ * 回退到行政区划编码，避免生成空文件名。
+ */
+function resolveArtifactLabel(
+  cityCode: string,
+  cityName?: string,
+  cachedCityName?: string,
+): string {
+  const normalizedCityName = (cityName ?? cachedCityName)?.trim();
+  return normalizedCityName || cityCode;
+}
+
+/**
  * 创建行政边界查询、SVG 构建和产物写入工具。
  *
  * 输入当前运行状态和运行时，输出 LangChain 工具集合；大体积 GeoJSON 只在工具闭包
@@ -80,23 +133,56 @@ function normalizeToolCityCode(cityCode: string): string {
  */
 export function createBoundaryTools(context: BoundaryToolContext) {
   const cache = new Map<string, BoundaryDataCacheItem>();
+  const cityNameCache = new Map<string, string>();
 
-  const getBoundaryData = async (cityCode: string): Promise<BoundaryDataCacheItem> => {
+  const getBoundaryData = async (
+    cityCode: string,
+    options?: {
+      includeSubBoundaries?: boolean;
+    },
+  ): Promise<BoundaryDataCacheItem> => {
     const normalizedCityCode = normalizeToolCityCode(cityCode);
-    const cached = cache.get(normalizedCityCode);
+    const includeSubBoundaries = Boolean(options?.includeSubBoundaries);
+    const cacheKey = buildBoundaryCacheKey(
+      normalizedCityCode,
+      includeSubBoundaries,
+    );
+    const cached = cache.get(cacheKey);
     if (cached) {
       return cached;
     }
 
-    const boundaryData = await fetchBoundaryDataByCityCode(normalizedCityCode);
-    const item = { cityCode: normalizedCityCode, boundaryData };
-    cache.set(normalizedCityCode, item);
+    if (includeSubBoundaries) {
+      const batchResult = await fetchBoundaryDataByBatchZip(normalizedCityCode);
+      const batchItem: BoundaryDataCacheItem = {
+        adminLevel: batchResult.adminLevel,
+        boundaryData: batchResult.boundaryData,
+        cityCode: batchResult.cityCode,
+        includesSubBoundaries: true,
+        selectedDirectory: batchResult.selectedDirectory,
+        selectedFileCount: batchResult.selectedFileCount,
+        source: batchResult.source,
+      };
+      cache.set(cacheKey, batchItem);
+      return batchItem;
+    }
+
+    const item: BoundaryDataCacheItem = {
+      boundaryData: await fetchBoundaryDataByCityCode(normalizedCityCode),
+      cityCode: normalizedCityCode,
+      includesSubBoundaries: false,
+      source: "ruiduobao",
+    };
+    cache.set(cacheKey, item);
     return item;
   };
 
   const resolveCityCodeTool = tool(
     async ({ cityName }) => {
       const result = await searchCityCode(context.runtime.config, cityName);
+      if (result.cityName) {
+        cityNameCache.set(normalizeToolCityCode(result.cityCode), result.cityName);
+      }
       return toPrettyJson(result);
     },
     {
@@ -110,26 +196,31 @@ export function createBoundaryTools(context: BoundaryToolContext) {
   );
 
   const fetchBoundaryDataTool = tool(
-    async ({ cityCode }) => {
-      const item = await getBoundaryData(cityCode);
-      return toPrettyJson({
-        cityCode: item.cityCode,
-        featureCount: countFeatures(item.boundaryData),
+    async ({ cityCode, includeSubBoundaries }) => {
+      const item = await getBoundaryData(cityCode, {
+        includeSubBoundaries: includeSubBoundaries ?? true,
       });
+      return toPrettyJson(summarizeBoundaryData(item));
     },
     {
       name: "fetch_boundary_data",
       description:
-        "Fetch boundary GeoJSON data by cityCode and return only a compact summary.",
+        "Fetch boundary GeoJSON data by cityCode and return only a compact summary. For SVG, keep includeSubBoundaries true to include lower-level borders.",
       schema: z.object({
         cityCode: z.string().regex(/^\d{6,12}$/).describe("Administrative code."),
+        includeSubBoundaries: z
+          .boolean()
+          .optional()
+          .describe("Whether to fetch lower-level borders. Defaults to true."),
       }),
     },
   );
 
   const buildBoundarySvgTool = tool(
-    async ({ cityCode, stylePatch }) => {
-      const item = await getBoundaryData(cityCode);
+    async ({ cityCode, includeSubBoundaries, stylePatch }) => {
+      const item = await getBoundaryData(cityCode, {
+        includeSubBoundaries: includeSubBoundaries ?? true,
+      });
       const svgResult = buildBoundarySvg({
         boundaryData: item.boundaryData,
         style: normalizeBoundaryStylePatch(stylePatch as Partial<BoundarySvgStyle>),
@@ -137,6 +228,7 @@ export function createBoundaryTools(context: BoundaryToolContext) {
 
       return toPrettyJson({
         cityCode: item.cityCode,
+        includesSubBoundaries: item.includesSubBoundaries,
         svgLength: svgResult.svg.length,
         style: svgResult.style,
       });
@@ -147,17 +239,29 @@ export function createBoundaryTools(context: BoundaryToolContext) {
         "Build SVG from cached or fetched boundary data and return a compact SVG summary.",
       schema: z.object({
         cityCode: z.string().regex(/^\d{6,12}$/).describe("Administrative code."),
+        includeSubBoundaries: z
+          .boolean()
+          .optional()
+          .describe("Whether to include lower-level borders in SVG. Defaults to true."),
         stylePatch: boundaryStylePatchSchema,
       }),
     },
   );
 
   const writeBoundaryArtifactTool = tool(
-    async ({ cityCode, cityName, needSvg, stylePatch }) => {
-      const item = await getBoundaryData(cityCode);
+    async ({ cityCode, cityName, includeSubBoundaries, needSvg, stylePatch }) => {
+      const shouldWriteSvg = needSvg ?? true;
+      const item = await getBoundaryData(cityCode, {
+        includeSubBoundaries: includeSubBoundaries ?? shouldWriteSvg,
+      });
       const artifacts: AgentArtifact[] = [];
+      const artifactLabel = resolveArtifactLabel(
+        item.cityCode,
+        cityName,
+        cityNameCache.get(item.cityCode),
+      );
 
-      if (needSvg) {
+      if (shouldWriteSvg) {
         const svgResult = buildBoundarySvg({
           boundaryData: item.boundaryData,
           style: normalizeBoundaryStylePatch(stylePatch as Partial<BoundarySvgStyle>),
@@ -165,7 +269,7 @@ export function createBoundaryTools(context: BoundaryToolContext) {
         artifacts.push(
           await writeAgentArtifact(context.state, context.runtime, {
             agentName: "boundaryReactAgent",
-            label: "boundary-svg",
+            label: artifactLabel,
             extension: "svg",
             content: svgResult.svg,
           }),
@@ -175,7 +279,7 @@ export function createBoundaryTools(context: BoundaryToolContext) {
       artifacts.push(
         await writeAgentArtifact(context.state, context.runtime, {
           agentName: "boundaryReactAgent",
-          label: "boundary-geojson",
+          label: artifactLabel,
           extension: "geojson",
           content: item.boundaryData,
         }),
@@ -185,7 +289,8 @@ export function createBoundaryTools(context: BoundaryToolContext) {
 
       return toPrettyJson({
         cityCode: item.cityCode,
-        cityName,
+        cityName: artifactLabel,
+        includesSubBoundaries: item.includesSubBoundaries,
         paths: artifacts.map((artifact) => ({
           label: artifact.label,
           path: formatArtifactPath(context.state.cwd, artifact.filePath),
@@ -199,6 +304,10 @@ export function createBoundaryTools(context: BoundaryToolContext) {
       schema: z.object({
         cityCode: z.string().regex(/^\d{6,12}$/).describe("Administrative code."),
         cityName: z.string().optional().describe("Resolved city name."),
+        includeSubBoundaries: z
+          .boolean()
+          .optional()
+          .describe("Whether to write lower-level borders. Defaults to needSvg."),
         needSvg: z.boolean().default(true).describe("Whether to write SVG too."),
         stylePatch: boundaryStylePatchSchema,
       }),

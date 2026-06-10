@@ -3,7 +3,7 @@
  * @Date: 2026-06-05 18:45:00
  * @Description: 封装本地 Pexels MCP 客户端连接、图片搜索工具发现和图片结果标准化。
  * @FilePath: /agents-cli/src/agents/travel/tools/pexelsMcpClient.ts
- * @LastEditTime: 2026-06-05 18:55:00
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import {
@@ -14,6 +14,7 @@ import {
 import { requirePexelsMcpConfig } from "../../../config.js";
 import { truncateText } from "../../../text.js";
 import type { AppConfig } from "../../../types.js";
+import type { Logger } from "../../../logger.js";
 
 interface PexelsMcpTool {
   description?: string;
@@ -52,6 +53,11 @@ export interface PexelsAttractionSearchInput {
   attractionName: string;
   city?: string;
   count?: number;
+}
+
+export interface PexelsMcpLogOptions {
+  logger?: Logger;
+  parentToolName?: string;
 }
 
 const preferredSearchToolNames = [
@@ -111,6 +117,40 @@ function parseMaybeJson(text: string): unknown {
   } catch {
     return truncateText(trimmedText, 5_000);
   }
+}
+
+/**
+ * 生成 MCP 日志摘要。
+ *
+ * 输入任意 MCP 参数或结果，输出短文本；失败策略是返回类型名，不影响实际 MCP 调用。
+ */
+function summarizeMcpLogValue(value: unknown): string {
+  try {
+    if (typeof value === "string") {
+      return truncateText(value, 240);
+    }
+
+    return truncateText(JSON.stringify(value), 240);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
+/**
+ * 生成 MCP 日志详情。
+ *
+ * 输入可选上层工具名和摘要，输出单行详情；缺失时只展示摘要。
+ */
+function buildMcpLogDetail(
+  options: PexelsMcpLogOptions | undefined,
+  summary?: string,
+): string | undefined {
+  const chunks = [
+    options?.parentToolName ? `上层工具: ${options.parentToolName}` : "",
+    summary,
+  ].filter(Boolean);
+
+  return chunks.length ? chunks.join("；") : undefined;
 }
 
 /**
@@ -189,23 +229,49 @@ async function withPexelsMcpClient<T>(
 /**
  * 读取 Pexels MCP 可用工具列表。
  */
-async function listPexelsMcpTools(client: Client): Promise<PexelsMcpTool[]> {
+async function listPexelsMcpTools(
+  client: Client,
+  options?: PexelsMcpLogOptions,
+): Promise<PexelsMcpTool[]> {
+  const startedAt = Date.now();
+  options?.logger?.chainStart(
+    "mcp",
+    "pexels.listTools",
+    buildMcpLogDetail(options),
+  );
+
   const tools: PexelsMcpTool[] = [];
   let cursor: string | undefined;
 
-  do {
-    const response = await client.listTools(cursor ? { cursor } : undefined);
-    tools.push(
-      ...response.tools.map((item) => ({
-        description: item.description,
-        inputSchema: item.inputSchema,
-        name: item.name,
-      })),
-    );
-    cursor = response.nextCursor;
-  } while (cursor);
+  try {
+    do {
+      const response = await client.listTools(cursor ? { cursor } : undefined);
+      tools.push(
+        ...response.tools.map((item) => ({
+          description: item.description,
+          inputSchema: item.inputSchema,
+          name: item.name,
+        })),
+      );
+      cursor = response.nextCursor;
+    } while (cursor);
 
-  return tools;
+    options?.logger?.chainSuccess(
+      "mcp",
+      "pexels.listTools",
+      Date.now() - startedAt,
+      `工具数: ${tools.length}`,
+    );
+    return tools;
+  } catch (error) {
+    options?.logger?.chainError(
+      "mcp",
+      "pexels.listTools",
+      error,
+      Date.now() - startedAt,
+    );
+    throw error;
+  }
 }
 
 /**
@@ -368,16 +434,24 @@ function collectPexelsImages(value: unknown, images: PexelsImage[]): void {
 export async function searchPexelsImagesForAttraction(
   config: AppConfig,
   input: PexelsAttractionSearchInput,
+  options?: PexelsMcpLogOptions,
 ): Promise<PexelsAttractionImages> {
   const count = Math.min(Math.max(input.count ?? 3, 1), 3);
   const query = [input.city, input.attractionName]
     .filter(Boolean)
     .join(" ")
     .trim();
+  const operationStartedAt = Date.now();
+  const operationName = "pexels.searchImages";
+  options?.logger?.chainStart(
+    "mcp",
+    operationName,
+    buildMcpLogDetail(options, `查询: ${query}`),
+  );
 
   try {
-    return await withPexelsMcpClient(config, async (client) => {
-      const tools = await listPexelsMcpTools(client);
+    const output = await withPexelsMcpClient(config, async (client) => {
+      const tools = await listPexelsMcpTools(client, options);
       const searchTool = findPexelsSearchTool(tools);
       const availableTools = tools.map((item) => ({
         description: item.description,
@@ -395,10 +469,39 @@ export async function searchPexelsImagesForAttraction(
         };
       }
 
-      const result = await client.callTool({
-        arguments: buildSearchToolArguments(searchTool, query, count),
-        name: searchTool.name,
-      });
+      const toolArguments = buildSearchToolArguments(searchTool, query, count);
+      const startedAt = Date.now();
+      const mcpName = `pexels.callTool:${searchTool.name}`;
+      options?.logger?.chainStart(
+        "mcp",
+        mcpName,
+        buildMcpLogDetail(
+          options,
+          `参数: ${summarizeMcpLogValue(toolArguments)}`,
+        ),
+      );
+      let result: unknown;
+      try {
+        result = await client.callTool({
+          arguments: toolArguments,
+          name: searchTool.name,
+        });
+        options?.logger?.chainSuccess(
+          "mcp",
+          mcpName,
+          Date.now() - startedAt,
+          `查询: ${query}`,
+        );
+      } catch (error) {
+        options?.logger?.chainError(
+          "mcp",
+          mcpName,
+          error,
+          Date.now() - startedAt,
+        );
+        throw error;
+      }
+
       const normalizedResult = normalizeMcpResult(result);
       const images: PexelsImage[] = [];
       collectPexelsImages(normalizedResult, images);
@@ -414,7 +517,20 @@ export async function searchPexelsImagesForAttraction(
         toolName: searchTool.name,
       };
     });
+    options?.logger?.chainSuccess(
+      "mcp",
+      operationName,
+      Date.now() - operationStartedAt,
+      `成功: ${output.success}；图片数: ${output.images.length}`,
+    );
+    return output;
   } catch (error) {
+    options?.logger?.chainError(
+      "mcp",
+      operationName,
+      error,
+      Date.now() - operationStartedAt,
+    );
     return {
       attractionName: input.attractionName,
       images: [],

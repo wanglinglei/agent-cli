@@ -48,7 +48,7 @@ export function buildTravelReactPrompt(input: string): string {
     | --- | --- | --- |
     | 摄影：... \| [查看原图](...) | 摄影：... \| [查看原图](...) | 摄影：... \| [查看原图](...) |
 12. 景点卡片里的图片使用 Markdown 图片语法展示工具返回的 markdownImageUrl；如果没有 markdownImageUrl，就使用 imageUrl。工具成功下载时 markdownImageUrl 会是本地绝对路径，确保 Markdown 预览器可以直接读取图片。不要使用 raw HTML、remoteImageUrl 或 data URI 作为图片 src；图片说明中保留 photographer 和 photoUrl（如果工具返回）。不要编造图片 URL、作者或来源；某个景点未查询到图片时写“未查询到 Pexels 配图”。如果你仍逐张输出图片，产物工具会兜底整理成三列 Markdown 图片表格。
-13. 最终必须调用 write_travel_plan_artifact 写入 Markdown；最后只用简短中文说明产物路径和完成情况。
+13. 最终必须调用 write_travel_plan_artifact 写入 Markdown；如果工具返回 success:true，必须立即停止调用工具，最后只用简短中文说明产物路径和完成情况。
 14. 不要编造工具返回中没有的酒店价格、评分、开放时间、门票价格或交通耗时；缺失信息用“未查询到”说明。尤其禁止写“约 xx 元”这类估算价格，除非工具结果中明确返回该价格。
 
 用户任务：

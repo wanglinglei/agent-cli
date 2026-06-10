@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 管理最终 Agent 产物的文件写入和路径展示。
  * @FilePath: /agents-cli/src/artifacts.ts
- * @LastEditTime: 2026-05-27 20:05:00
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -25,7 +25,7 @@ interface WriteArtifactOptions {
 function sanitizePathSegment(value: string): string {
   return value
     .trim()
-    .replace(/[^a-zA-Z0-9._-]+/g, "-")
+    .replace(/[^\p{L}\p{N}._-]+/gu, "-")
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 }

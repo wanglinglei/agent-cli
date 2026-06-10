@@ -6,11 +6,33 @@
  * @LastEditTime: 2026-06-05 18:20:00
  */
 import { runReactToolAgent } from "../../graph/reactToolRunner.js";
+import { formatArtifactPath } from "../../artifacts.js";
 import { truncateText } from "../../text.js";
 import { buildTravelReactPrompt } from "./prompts.js";
 import { travelPluginData } from "./pluginData.js";
 import { createTravelTools } from "./tools/travelTools.js";
 import type { AgentArtifact, AgentRuntime, AgentState } from "../../types.js";
+
+/**
+ * 根据已写入的旅行产物生成最终说明。
+ *
+ * 输入当前图状态和本节点写入的产物列表，输出面向 CLI 的简短完成文案；当 ReAct
+ * 在产物写入后继续循环并抛出停止异常时，用该文案作为成功兜底。
+ */
+function buildTravelArtifactFinalAnswer(
+  state: AgentState,
+  artifacts: AgentArtifact[],
+): string {
+  const artifactPaths = artifacts.map((artifact) =>
+    formatArtifactPath(state.cwd, artifact.filePath),
+  );
+
+  if (artifactPaths.length === 1) {
+    return `旅行计划已生成：${artifactPaths[0]}`;
+  }
+
+  return `旅行计划已生成：${artifactPaths.join("、")}`;
+}
 
 /**
  * 旅行规划 ReAct Agent。
@@ -49,6 +71,24 @@ export async function travelReactAgent(
       artifacts: [...state.artifacts, ...artifacts],
     };
   } catch (error) {
+    if (artifacts.length > 0) {
+      const finalAnswer = buildTravelArtifactFinalAnswer(state, artifacts);
+      runtime.logger.warn(
+        `${nodeName} 已写入旅行计划产物，后续 ReAct 停止异常按完成处理。`,
+      );
+      runtime.logger.debug("产物写入后的 ReAct 异常", error);
+      runtime.logger.nodeSuccess(nodeName, truncateText(finalAnswer));
+
+      return {
+        pluginData: travelPluginData.update(state, {
+          toolEvents: [],
+          finalContent: finalAnswer,
+        }),
+        finalAnswer,
+        artifacts: [...state.artifacts, ...artifacts],
+      };
+    }
+
     runtime.logger.nodeError(nodeName, error);
     return {
       errors: [

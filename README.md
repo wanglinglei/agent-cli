@@ -166,11 +166,13 @@ PEXELS_MCP_ARGS=["--your","args"]
 PEXELS_API_KEY=your_pexels_api_key
 LLM_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
 LLM_MODEL=qwen-plus
+DEBUG=false
 ```
 
 `WEATHER_API_HOST` 使用和风天气控制台分配的 API Host；天气查询工具会同时用它访问 `/geo/v2/city/lookup` 和 `/v7/weather/...`。
 旅行规划使用高德地图 MCP 查询景点、酒店、餐饮和距离；如果配置了 `AMAP_MCP_URL` 会优先使用它，否则用 `AMAP_MAPS_API_KEY` 组装官方 MCP 地址。
 旅行规划还会通过本地 stdio Pexels MCP 为最终景点配图，每个景点返回 1-3 张图片；配置 `PEXELS_MCP_COMMAND` 和可选的 `PEXELS_MCP_ARGS`，`PEXELS_API_KEY` 会注入到 MCP 子进程环境中。图片会下载到 `output/travelReactAgent/<runId>-travel-plan-assets/`，Markdown 使用本地绝对路径引用这些图片，避免预览器拒绝超长 data URI 或无法解析相对路径。景点候选以卡片块展示，景点信息和配图放在同一个卡片中，不再单独生成“景点配图”章节；同一景点的多张配图会以每行 3 张的 Markdown 表格展示。
+`DEBUG` 默认为 `false`，Agent 调用过程中只展示节点开始、节点结束和节点耗时；设为 `true` 时，会展示完整的子 Agent、Tool、MCP 和输入输出链路日志。
 
 全局 `agents` 命令会优先读取当前工作目录的 `.env`，再读取 CLI 项目根目录的 `.env` 作为兜底。
 

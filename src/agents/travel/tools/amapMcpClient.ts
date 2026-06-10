@@ -3,7 +3,7 @@
  * @Date: 2026-06-05 18:20:00
  * @Description: 封装高德地图 MCP 客户端连接、工具发现和工具调用。
  * @FilePath: /agents-cli/src/agents/travel/tools/amapMcpClient.ts
- * @LastEditTime: 2026-06-05 18:20:00
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -11,6 +11,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { requireAmapMcpUrl } from "../../../config.js";
 import { truncateText } from "../../../text.js";
 import type { AppConfig } from "../../../types.js";
+import type { Logger } from "../../../logger.js";
 
 interface AmapMcpTool {
   description?: string;
@@ -28,6 +29,11 @@ export interface AmapMcpCallOutput {
   reason?: string;
   success: boolean;
   toolName: string;
+}
+
+export interface AmapMcpLogOptions {
+  logger?: Logger;
+  parentToolName?: string;
 }
 
 /**
@@ -78,6 +84,40 @@ function compactValue(value: unknown, depth = 0): unknown {
       .slice(0, 40)
       .map(([key, item]) => [key, compactValue(item, depth + 1)]),
   );
+}
+
+/**
+ * 生成 MCP 日志摘要。
+ *
+ * 输入任意 MCP 参数或结果，输出短文本；失败策略是返回类型名，不影响实际 MCP 调用。
+ */
+function summarizeMcpLogValue(value: unknown): string {
+  try {
+    if (typeof value === "string") {
+      return truncateText(value, 240);
+    }
+
+    return truncateText(JSON.stringify(compactValue(value)), 240);
+  } catch {
+    return Object.prototype.toString.call(value);
+  }
+}
+
+/**
+ * 生成 MCP 日志详情。
+ *
+ * 输入可选上层工具名和摘要，输出单行详情；缺失时只展示摘要。
+ */
+function buildMcpLogDetail(
+  options: AmapMcpLogOptions | undefined,
+  summary?: string,
+): string | undefined {
+  const chunks = [
+    options?.parentToolName ? `上层工具: ${options.parentToolName}` : "",
+    summary,
+  ].filter(Boolean);
+
+  return chunks.length ? chunks.join("；") : undefined;
 }
 
 /**
@@ -174,24 +214,52 @@ async function withAmapMcpClient<T>(
 /**
  * 读取高德 MCP 可用工具列表。
  */
-export async function listAmapMcpTools(config: AppConfig): Promise<AmapMcpTool[]> {
-  return withAmapMcpClient(config, async (client) => {
-    const tools: AmapMcpTool[] = [];
-    let cursor: string | undefined;
+export async function listAmapMcpTools(
+  config: AppConfig,
+  options?: AmapMcpLogOptions,
+): Promise<AmapMcpTool[]> {
+  const startedAt = Date.now();
+  options?.logger?.chainStart(
+    "mcp",
+    "amap.listTools",
+    buildMcpLogDetail(options),
+  );
 
-    do {
-      const response = await client.listTools(cursor ? { cursor } : undefined);
-      tools.push(
-        ...response.tools.map((item) => ({
-          description: item.description,
-          name: item.name,
-        })),
-      );
-      cursor = response.nextCursor;
-    } while (cursor);
+  try {
+    const tools = await withAmapMcpClient(config, async (client) => {
+      const resultTools: AmapMcpTool[] = [];
+      let cursor: string | undefined;
 
+      do {
+        const response = await client.listTools(cursor ? { cursor } : undefined);
+        resultTools.push(
+          ...response.tools.map((item) => ({
+            description: item.description,
+            name: item.name,
+          })),
+        );
+        cursor = response.nextCursor;
+      } while (cursor);
+
+      return resultTools;
+    });
+
+    options?.logger?.chainSuccess(
+      "mcp",
+      "amap.listTools",
+      Date.now() - startedAt,
+      `工具数: ${tools.length}`,
+    );
     return tools;
-  });
+  } catch (error) {
+    options?.logger?.chainError(
+      "mcp",
+      "amap.listTools",
+      error,
+      Date.now() - startedAt,
+    );
+    throw error;
+  }
 }
 
 /**
@@ -203,36 +271,66 @@ export async function listAmapMcpTools(config: AppConfig): Promise<AmapMcpTool[]
 export async function callAmapMcpTool(
   config: AppConfig,
   input: AmapMcpCallInput,
+  options?: AmapMcpLogOptions,
 ): Promise<AmapMcpCallOutput> {
-  return withAmapMcpClient(config, async (client) => {
-    const toolResponse = await client.listTools();
-    const availableTools = toolResponse.tools.map((item) => ({
-      description: item.description,
-      name: item.name,
-    }));
-    const foundTool = availableTools.find((item) => item.name === input.toolName);
+  const startedAt = Date.now();
+  const mcpName = `amap.callTool:${input.toolName}`;
+  options?.logger?.chainStart(
+    "mcp",
+    mcpName,
+    buildMcpLogDetail(
+      options,
+      `参数: ${summarizeMcpLogValue(input.arguments ?? {})}`,
+    ),
+  );
 
-    if (!foundTool) {
+  try {
+    const output = await withAmapMcpClient(config, async (client) => {
+      const toolResponse = await client.listTools();
+      const availableTools = toolResponse.tools.map((item) => ({
+        description: item.description,
+        name: item.name,
+      }));
+      const foundTool = availableTools.find((item) => item.name === input.toolName);
+
+      if (!foundTool) {
+        return {
+          availableTools,
+          success: false,
+          toolName: input.toolName,
+        };
+      }
+
+      const result = await client.callTool({
+        arguments: input.arguments ?? {},
+        name: input.toolName,
+      });
+
+      const normalizedResult = normalizeMcpResult(result);
+      const businessError = getAmapBusinessError(normalizedResult);
+
       return {
-        availableTools,
-        success: false,
+        ...(businessError ? { reason: businessError } : {}),
+        result: normalizedResult,
+        success: !businessError,
         toolName: input.toolName,
       };
-    }
-
-    const result = await client.callTool({
-      arguments: input.arguments ?? {},
-      name: input.toolName,
     });
 
-    const normalizedResult = normalizeMcpResult(result);
-    const businessError = getAmapBusinessError(normalizedResult);
-
-    return {
-      ...(businessError ? { reason: businessError } : {}),
-      result: normalizedResult,
-      success: !businessError,
-      toolName: input.toolName,
-    };
-  });
+    options?.logger?.chainSuccess(
+      "mcp",
+      mcpName,
+      Date.now() - startedAt,
+      `成功: ${output.success}`,
+    );
+    return output;
+  } catch (error) {
+    options?.logger?.chainError(
+      "mcp",
+      mcpName,
+      error,
+      Date.now() - startedAt,
+    );
+    throw error;
+  }
 }

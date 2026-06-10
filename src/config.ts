@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 读取并校验 CLI 运行所需的环境变量配置。
  * @FilePath: /agents-cli/src/config.ts
- * @LastEditTime: 2026-06-05 18:55:00
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -38,6 +38,7 @@ loadEnvFiles();
 
 const configSchema = z.object({
   dashscopeApiKey: z.string().min(1, "缺少 DASHSCOPE_API_KEY"),
+  showFullDebugInfo: z.boolean().default(false),
   tavilyApiKey: z.string().optional(),
   weatherApiHost: z.string().url().optional(),
   weatherApiToken: z.string().optional(),
@@ -54,6 +55,38 @@ const configSchema = z.object({
 });
 
 /**
+ * 解析布尔环境变量。
+ *
+ * 输入环境变量原始值和默认值，输出布尔配置；支持 true/false、1/0、yes/no、
+ * on/off，无法识别时回退默认值，避免日志配置影响主流程启动。
+ */
+function parseBooleanEnv(rawValue: string | undefined, defaultValue: boolean): boolean {
+  const normalized = rawValue?.trim().toLowerCase();
+  if (!normalized) {
+    return defaultValue;
+  }
+
+  if (["1", "true", "yes", "y", "on"].includes(normalized)) {
+    return true;
+  }
+
+  if (["0", "false", "no", "n", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return defaultValue;
+}
+
+/**
+ * 读取是否展示完整调试链路。
+ *
+ * 输入来自环境变量，输出日志模式开关；默认 false 以减少普通运行输出噪音。
+ */
+export function isFullDebugInfoEnabled(): boolean {
+  return parseBooleanEnv(process.env.DEBUG, false);
+}
+
+/**
  * 读取并校验运行所需的环境变量。
  *
  * Tavily Key 是可选项，因为命令型任务不需要联网搜索；当任务实际进入搜索 Agent
@@ -66,6 +99,7 @@ export function loadConfig(): AppConfig {
 
   return configSchema.parse({
     dashscopeApiKey: process.env.DASHSCOPE_API_KEY,
+    showFullDebugInfo: isFullDebugInfoEnabled(),
     tavilyApiKey: process.env.TAVILY_API_KEY,
     weatherApiHost: process.env.WEATHER_API_HOST,
     weatherApiToken: process.env.WEATHER_API_TOKEN,

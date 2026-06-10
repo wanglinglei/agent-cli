@@ -3,7 +3,7 @@
  * @Date: 2026-06-05 18:20:00
  * @Description: 提供旅行规划流程使用的 LangChain 标准工具。
  * @FilePath: /agents-cli/src/agents/travel/tools/travelTools.ts
- * @LastEditTime: 2026-06-08 09:23:00
+ * @LastEditTime: 2026-06-10 00:00:00
  */
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
@@ -682,7 +682,10 @@ async function safeAmapMcpCall(
   input: AmapMcpCallInput,
 ): Promise<AmapMcpCallOutput> {
   try {
-    return await callAmapMcpTool(context.runtime.config, input);
+    return await callAmapMcpTool(context.runtime.config, input, {
+      logger: context.runtime.logger,
+      parentToolName: input.toolName,
+    });
   } catch (error) {
     return {
       result: {
@@ -743,7 +746,10 @@ export function createTravelTools(context: TravelToolContext) {
   const amapListToolsTool = tool(
     async () => {
       try {
-        const tools = await listAmapMcpTools(context.runtime.config);
+        const tools = await listAmapMcpTools(context.runtime.config, {
+          logger: context.runtime.logger,
+          parentToolName: "amap_list_tools",
+        });
         return toPrettyJson({
           count: tools.length,
           success: true,
@@ -896,6 +902,10 @@ export function createTravelTools(context: TravelToolContext) {
             city,
             count: imagesPerAttraction,
           },
+          {
+            logger: context.runtime.logger,
+            parentToolName: "pexels_attraction_images",
+          },
         );
         const images: DownloadedPexelsImage[] = [];
 
@@ -1000,7 +1010,7 @@ export function createTravelTools(context: TravelToolContext) {
     {
       name: "write_travel_plan_artifact",
       description:
-        "Write the final travel plan Markdown artifact. Call this once after the final plan is complete.",
+        "Write the final travel plan Markdown artifact. Call this once after the final plan is complete. If the tool returns success:true, stop calling tools and provide the final answer.",
       schema: z.object({
         markdown: z.string().min(1).describe("Complete final travel plan Markdown."),
         label: z.string().min(1).default("travel-plan"),
