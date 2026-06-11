@@ -3,8 +3,9 @@
  * @Date: 2026-05-27 20:05:00
  * @Description: 根据行政区划编码下载边界 GeoJSON 数据。
  * @FilePath: /agents-cli/src/agents/boundary/tools/boundaryFetch.ts
- * @LastEditTime: 2026-05-27 20:05:00
+ * @LastEditTime: 2026-06-11 00:00:00
  */
+import { fetchBoundaryJson } from "./boundaryHttpClient.js";
 
 const FIXED_YEAR = 2023 as const;
 const RUIDUOBAO_HOST = "https://map.ruiduobao.com";
@@ -37,13 +38,7 @@ export async function fetchBoundaryDataByCityCode(
 ): Promise<Record<string, unknown>> {
   const cityCode = normalizeCityCode(rawCityCode);
   const indexUrl = `${RUIDUOBAO_HOST}/getgsondb?code=${cityCode}&year=${FIXED_YEAR}`;
-  const response = await fetch(indexUrl);
-
-  if (!response.ok) {
-    throw new Error(`边界接口请求失败：${response.status}`);
-  }
-
-  const indexData = (await response.json()) as BoundaryIndexResponse;
+  const indexData = await fetchBoundaryJson<BoundaryIndexResponse>(indexUrl);
   const filepath = indexData.filepath?.trim();
   if (!filepath) {
     throw new Error("边界接口返回缺少 filepath，无法下载几何数据。");
@@ -51,12 +46,8 @@ export async function fetchBoundaryDataByCityCode(
 
   const geometryUrl = filepath.startsWith("http")
     ? filepath
+    : filepath.startsWith("//")
+      ? `https:${filepath}`
     : `${RUIDUOBAO_HOST}${filepath.startsWith("/") ? "" : "/"}${filepath}`;
-  const geometryResponse = await fetch(geometryUrl);
-
-  if (!geometryResponse.ok) {
-    throw new Error(`边界几何数据请求失败：${geometryResponse.status}`);
-  }
-
-  return (await geometryResponse.json()) as Record<string, unknown>;
+  return fetchBoundaryJson<Record<string, unknown>>(geometryUrl);
 }

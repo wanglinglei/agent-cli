@@ -3,12 +3,14 @@
  * @Date: 2026-06-10 00:00:00
  * @Description: 根据行政区划编码批量下载并读取含下级区域的边界 GeoJSON 数据。
  * @FilePath: /agents-cli/src/agents/boundary/tools/boundaryBatchFetch.ts
- * @LastEditTime: 2026-06-10 00:00:00
+ * @LastEditTime: 2026-06-11 00:00:00
  */
 import AdmZip from "adm-zip";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { extname, join, relative } from "node:path";
+
+import { fetchBoundaryBuffer } from "./boundaryHttpClient.js";
 
 const FIXED_YEAR = 2023 as const;
 const RUIDUOBAO_HOST = "https://map.ruiduobao.com";
@@ -74,20 +76,14 @@ async function downloadBoundaryBatchZip(
       ? `/downloadCityBatch/city/${cityCode}`
       : `/downloadCountyBatch/county/${cityCode}`;
   const requestUrl = `${RUIDUOBAO_HOST}${requestPath}?format=shp&year=${FIXED_YEAR}`;
-  const response = await fetch(requestUrl, {
+  const fileBuffer = await fetchBoundaryBuffer(requestUrl, {
     headers: {
       Referer: `${RUIDUOBAO_HOST}/`,
       "User-Agent":
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 13_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     },
-    redirect: "follow",
   });
 
-  if (!response.ok) {
-    throw new Error(`批量边界下载失败：${response.status}`);
-  }
-
-  const fileBuffer = Buffer.from(await response.arrayBuffer());
   if (!fileBuffer.length) {
     throw new Error("批量边界下载返回空文件。");
   }

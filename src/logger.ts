@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 封装 CLI 运行过程中的 chalk 彩色日志输出。
  * @FilePath: /agents-cli/src/logger.ts
- * @LastEditTime: 2026-06-10 00:00:00
+ * @LastEditTime: 2026-06-11 00:00:00
  */
 import chalk from "chalk";
 
@@ -91,7 +91,6 @@ export class Logger {
   nodeError(nodeName: string, error: unknown): void {
     const message = error instanceof Error ? error.message : String(error);
     if (!this.showFullDebugInfo) {
-      console.error(chalk.red(`[节点失败] ${nodeName}`));
       return;
     }
 
@@ -188,7 +187,7 @@ export class Logger {
  */
 export function createLogger(
   verbose: boolean,
-  showFullDebugInfo = true,
+  showFullDebugInfo = false,
 ): Logger {
   return new Logger(verbose, showFullDebugInfo);
 }

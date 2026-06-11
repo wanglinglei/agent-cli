@@ -3,7 +3,7 @@
  * @Date: 2026-05-27 19:16:50
  * @Description: 构建 LangGraph 多 Agent 状态图和初始运行状态。
  * @FilePath: /agents-cli/src/graph/index.ts
- * @LastEditTime: 2026-06-10 00:00:00
+ * @LastEditTime: 2026-06-11 00:00:00
  */
 import { Annotation, END, START, StateGraph } from "@langchain/langgraph";
 
@@ -51,12 +51,26 @@ function bindNode(nodeName: string, node: AgentNode, runtime: AgentRuntime) {
 
     try {
       const result = await node(state as AgentState, runtime);
-      runtime.logger.chainSuccess(
-        "subAgent",
-        nodeName,
-        Date.now() - startedAt,
-        result.finalAnswer ? `输出: ${truncateText(result.finalAnswer, 160)}` : undefined,
-      );
+      const previousErrorCount = state.errors.length;
+      const nextErrors = result.errors ?? state.errors;
+      const latestError = nextErrors[nextErrors.length - 1];
+      if (nextErrors.length > previousErrorCount && latestError) {
+        runtime.logger.chainError(
+          "subAgent",
+          nodeName,
+          latestError,
+          Date.now() - startedAt,
+        );
+      } else {
+        runtime.logger.chainSuccess(
+          "subAgent",
+          nodeName,
+          Date.now() - startedAt,
+          result.finalAnswer
+            ? `输出: ${truncateText(result.finalAnswer, 160)}`
+            : undefined,
+        );
+      }
       return result;
     } catch (error) {
       runtime.logger.chainError(
